@@ -41,10 +41,10 @@ const App = () => (
         <AuthProvider>
           <OwnerAuthProvider>
             <Routes>
-              <Route path="/login" element={<Login />} />
+              <Route path="/login" element={<Navigate to="/owner/login" replace />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="/" element={<Navigate to="/owner/login" replace />} />
               {/* Super admin routes */}
               <Route element={<ProtectedRoute requireAdmin><AppLayout /></ProtectedRoute>}>
                 <Route path="/dashboard" element={<Dashboard />} />
