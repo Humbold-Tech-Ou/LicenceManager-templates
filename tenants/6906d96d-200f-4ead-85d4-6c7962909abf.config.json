@@ -1,0 +1,13 @@
+{
+  "tenant_token": "6ac4cf0f-79c5-4e",
+  "supabase_url": "https://bvogcosopmyuvgkdlpjw.supabase.co",
+  "plan": "basic",
+  "brand": {
+    "company_name": "Yhoel Gascon",
+    "logo_url": null,
+    "primary_color": "#7c3aed",
+    "favicon_url": null
+  },
+  "generated_at": "2026-05-02T21:03:04.812Z",
+  "version": "v1.0.3"
+}
