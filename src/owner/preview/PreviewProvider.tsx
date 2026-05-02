@@ -6,34 +6,88 @@ import {
   mockServers, mockVod, mockPanelConfig, mockActiveConnections,
 } from "./mockData";
 
-// Build a thenable query result with the right rows for each table.
-// Supports the calls actually made by the owner pages.
-function makeTable(rows: unknown[]) {
-  let result: unknown[] = rows.slice();
-  const builder: any = {
-    select: (cols?: string) => {
-      if (cols && cols.includes("package_id") && rows === mockLines) {
-        result = (rows as any[]).map((l) => ({ package_id: l.package_id }));
-      }
-      return builder;
+// ── Mock query builder ────────────────────────────────────────────────────────
+// Returns a fluent builder that resolves with filtered rows.
+// Every unknown chain method falls through to keep the chain alive.
+function makeTable(initialRows: unknown[]) {
+  let rows = initialRows.slice();
+
+  const builder: any = new Proxy({}, {
+    get(_: any, method: string) {
+      // Immediate-resolve terminators
+      if (method === "single")
+        return () => Promise.resolve({ data: rows[0] ?? null, error: null, count: null });
+      if (method === "maybeSingle")
+        return () => Promise.resolve({ data: rows[0] ?? null, error: null, count: null });
+      if (method === "then")
+        return (resolve: (v: any) => unknown) =>
+          Promise.resolve({ data: rows, error: null, count: rows.length }).then(resolve);
+      if (method === "catch")
+        return () => builder;
+
+      // Mutations — resolve immediately
+      if (method === "insert")
+        return (data: unknown) => Promise.resolve({ data, error: null });
+      if (method === "upsert")
+        return (data: unknown) => Promise.resolve({ data, error: null });
+      if (method === "update")
+        return () => ({ ...builder, eq: () => Promise.resolve({ data: null, error: null }) });
+      if (method === "delete")
+        return () => ({ ...builder, eq: () => Promise.resolve({ data: null, error: null }) });
+
+      // Filters that mutate the row set
+      if (method === "eq")
+        return (col: string, val: unknown) => {
+          rows = rows.filter((r: any) => r?.[col] === val);
+          return builder;
+        };
+      if (method === "neq")
+        return (col: string, val: unknown) => {
+          rows = rows.filter((r: any) => r?.[col] !== val);
+          return builder;
+        };
+      if (method === "in")
+        return (col: string, vals: unknown[]) => {
+          rows = rows.filter((r: any) => vals.includes(r?.[col]));
+          return builder;
+        };
+      if (method === "gt")
+        return (col: string, val: unknown) => {
+          rows = rows.filter((r: any) => r?.[col] > val);
+          return builder;
+        };
+      if (method === "gte")
+        return (col: string, val: unknown) => {
+          rows = rows.filter((r: any) => r?.[col] >= val);
+          return builder;
+        };
+      if (method === "lt")
+        return (col: string, val: unknown) => {
+          rows = rows.filter((r: any) => r?.[col] < val);
+          return builder;
+        };
+      if (method === "lte")
+        return (col: string, val: unknown) => {
+          rows = rows.filter((r: any) => r?.[col] <= val);
+          return builder;
+        };
+
+      // Pagination
+      if (method === "limit")
+        return (n: number) => { rows = rows.slice(0, n); return builder; };
+      if (method === "range")
+        return (from: number, to: number) => { rows = rows.slice(from, to + 1); return builder; };
+
+      // Everything else (select, order, not, or, is, like, ilike, contains…)
+      // — return builder to keep the chain alive.
+      return () => builder;
     },
-    insert: () => Promise.resolve({ data: null, error: null }),
-    update: () => builder,
-    delete: () => builder,
-    upsert: () => Promise.resolve({ data: null, error: null }),
-    eq:    (col: string, val: unknown) => { result = (result as any[]).filter((r) => r?.[col] === val); return builder; },
-    neq:   (col: string, val: unknown) => { result = (result as any[]).filter((r) => r?.[col] !== val); return builder; },
-    in:    (col: string, vals: unknown[]) => { result = (result as any[]).filter((r) => vals.includes(r?.[col])); return builder; },
-    order: () => builder,
-    limit: (n: number) => { result = (result as any[]).slice(0, n); return builder; },
-    single:      () => Promise.resolve({ data: (result as any[])[0] ?? null, error: null }),
-    maybeSingle: () => Promise.resolve({ data: (result as any[])[0] ?? null, error: null }),
-    then: (onFulfilled: (v: { data: unknown; error: null }) => unknown) =>
-      Promise.resolve({ data: result, error: null }).then(onFulfilled),
-  };
+  });
+
   return builder;
 }
 
+// ── Table registry ────────────────────────────────────────────────────────────
 const TABLES: Record<string, unknown[]> = {
   resellers:          mockResellers,
   packages:           mockPackages,
@@ -43,29 +97,61 @@ const TABLES: Record<string, unknown[]> = {
   panel_config:       mockPanelConfig,
   active_connections: mockActiveConnections,
   streams:            [],
+  // any unknown table → empty array (won't crash)
 };
 
+// Mock session — id must match mockReseller.id so eq('id', user.id) resolves correctly.
+const MOCK_SESSION = {
+  user: { id: mockReseller.id, email: mockReseller.email, role: "authenticated" },
+  access_token: "preview-token",
+  token_type: "bearer",
+};
+
+// ── Install mock client ───────────────────────────────────────────────────────
 let installed = false;
 function installMockClient() {
   if (installed) return;
   installed = true;
 
-  // Replace .from() to return mock data; replace auth to report a session.
-  (ownerSupabase as any).from = (table: string) => {
-    const rows = TABLES[table] ?? [];
-    return makeTable(rows);
-  };
+  (ownerSupabase as any).from = (table: string) =>
+    makeTable(TABLES[table] ?? []);
+
+  // .rpc() — return empty success for any stored procedure call.
+  (ownerSupabase as any).rpc = (_fn: string, _args?: unknown) =>
+    Promise.resolve({ data: null, error: null });
+
   (ownerSupabase as any).auth = {
-    getSession: () => Promise.resolve({ data: { session: { user: { email: mockReseller.email } } }, error: null }),
-    onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
-    signInWithPassword: () => Promise.resolve({ data: null, error: null }),
+    getSession: () =>
+      Promise.resolve({ data: { session: MOCK_SESSION }, error: null }),
+
+    // CRITICAL: call the callback immediately so OwnerAuthProvider
+    // exits its "loading" state and renders the page content.
+    onAuthStateChange: (cb: (event: string, session: any) => void) => {
+      setTimeout(() => cb("SIGNED_IN", MOCK_SESSION), 0);
+      return { data: { subscription: { unsubscribe: () => {} } } };
+    },
+
+    getUser: () =>
+      Promise.resolve({ data: { user: MOCK_SESSION.user }, error: null }),
+
+    signInWithPassword: (_creds: unknown) =>
+      Promise.resolve({ data: { session: MOCK_SESSION, user: MOCK_SESSION.user }, error: null }),
+
     signOut: () => Promise.resolve({ error: null }),
   };
+
+  // Disable realtime subscriptions silently.
+  (ownerSupabase as any).channel = () => ({
+    on: () => ({ subscribe: () => ({ unsubscribe: () => {} }) }),
+    subscribe: () => ({ unsubscribe: () => {} }),
+    unsubscribe: () => {},
+  });
 }
 
-// Install at module evaluation so children render with mock from first paint.
+// Run before any component mounts.
 installMockClient();
 
+// ── PreviewProvider component ─────────────────────────────────────────────────
 export function PreviewProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.title = "Vista previa — Mi Panel IPTV";
