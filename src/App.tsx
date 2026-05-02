@@ -30,6 +30,8 @@ import OwnerPackages from "@/owner/Packages";
 import OwnerServers from "@/owner/Servers";
 import OwnerVOD from "@/owner/VOD";
 import OwnerSettings from "@/owner/Settings";
+// Owner preview (public, mock data)
+import { PreviewProvider } from "@/owner/preview/PreviewProvider";
 
 const queryClient = new QueryClient();
 
@@ -73,6 +75,18 @@ const App = () => (
                   <Route path="vod" element={<OwnerVOD />} />
                   <Route path="settings" element={<OwnerSettings />} />
                 </Route>
+              </Route>
+              {/* Public preview routes — no auth, mock data */}
+              <Route path="/owner-preview/login" element={<PreviewProvider><OwnerLogin /></PreviewProvider>} />
+              <Route path="/owner-preview" element={<PreviewProvider><OwnerLayout /></PreviewProvider>}>
+                <Route index element={<Navigate to="/owner-preview/dashboard" replace />} />
+                <Route path="dashboard" element={<OwnerDashboard />} />
+                <Route path="lines"     element={<OwnerLines />} />
+                <Route path="resellers" element={<OwnerResellers />} />
+                <Route path="packages"  element={<OwnerPackages />} />
+                <Route path="servers"   element={<OwnerServers />} />
+                <Route path="vod"       element={<OwnerVOD />} />
+                <Route path="settings"  element={<OwnerSettings />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
