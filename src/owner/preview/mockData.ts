@@ -57,10 +57,10 @@ export const mockServers: Server[] = [
 const mkLine = (i: number, status: Line["status"], pkgId: string, resellerId: string | null, days: number): Line => {
   const pkg = mockPackages.find(p => p.id === pkgId);
   return {
-    id: \`l-\${i}\`,
+    id: "l-" + i,
     reseller_id: resellerId,
     package_id: pkgId,
-    username: \`user_\${(1000 + i).toString(36)}\`,
+    username: "user_" + (1000 + i).toString(36),
     password: Math.random().toString(36).slice(2, 12),
     is_demo: pkgId === "p-demo",
     status,
