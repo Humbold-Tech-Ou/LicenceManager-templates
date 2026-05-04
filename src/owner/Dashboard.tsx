@@ -1,39 +1,56 @@
 import { useEffect, useState } from "react";
 import { ownerSupabase, useOwnerAuth } from "@/hooks/useOwnerPanel";
-import { Loader2, TrendingUp, Tv2, Clock, FlaskConical } from "lucide-react";
-import { format, subDays } from "date-fns";
+import { Loader2, Tv2, Clock, FlaskConical, Users } from "lucide-react";
+import { format, formatDistanceToNowStrict, subDays } from "date-fns";
 import { es } from "date-fns/locale";
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import type { Line } from "@/types/owner-panel";
 import { toast } from "sonner";
-import OwnerStatCard from "@/components/owner/OwnerStatCard";
 
-interface Stat {
+interface ChartPoint { day: string; líneas: number }
+
+// ── Stat card ──────────────────────────────────────────────────────────────────
+const COLOR_MAP = {
+  violet: { bg: "bg-violet-100", text: "text-violet-600" },
+  green:  { bg: "bg-green-100",  text: "text-green-600" },
+  orange: { bg: "bg-orange-100", text: "text-orange-600" },
+  blue:   { bg: "bg-blue-100",   text: "text-blue-600" },
+};
+
+function StatCard({
+  label, value, sub, icon, color,
+}: {
   label: string;
   value: number | string;
-  icon: React.ElementType;
-  color: string;
+  sub?: string;
+  icon: React.ReactNode;
+  color: keyof typeof COLOR_MAP;
+}) {
+  const { bg, text } = COLOR_MAP[color];
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+      <div className={`size-9 rounded-lg ${bg} ${text} flex items-center justify-center`}>
+        {icon}
+      </div>
+      <div>
+        <p className="text-2xl font-bold text-foreground">{typeof value === "number" ? value.toLocaleString() : value}</p>
+        {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
+        <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+      </div>
+    </div>
+  );
 }
 
-interface ChartPoint {
-  day: string;
-  líneas: number;
-}
-
-
+// ── Dashboard ─────────────────────────────────────────────────────────────────
 export default function OwnerDashboard() {
   const { reseller } = useOwnerAuth();
-  const [stats, setStats] = useState<Stat[]>([]);
   const [chart, setChart] = useState<ChartPoint[]>([]);
   const [expiringSoon, setExpiringSoon] = useState<Line[]>([]);
+  const [activeLines, setActiveLines] = useState(0);
+  const [expiredToday, setExpiredToday] = useState(0);
+  const [resellerCount, setResellerCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -48,70 +65,32 @@ export default function OwnerDashboard() {
       const in48h = new Date(now.getTime() + 48 * 3600 * 1000).toISOString();
       const today = now.toISOString().split("T")[0];
 
-      const [linesRes, expRes] = await Promise.all([
-        ownerSupabase.from("lines").select("id, status, is_demo, created_at, expires_at, reseller_id"),
+      const [linesRes, expRes, resRes] = await Promise.all([
+        ownerSupabase.from("lines").select("id, status, is_demo, created_at, expires_at"),
         ownerSupabase
           .from("lines")
-          .select("*, package:packages(id,name,duration_hours)")
+          .select("id, username, expires_at, package:packages(id,name), reseller:resellers(id,name)")
           .lte("expires_at", in48h)
           .gte("expires_at", now.toISOString())
           .eq("status", "active")
           .order("expires_at"),
+        ownerSupabase.from("resellers").select("id").neq("id", reseller!.id),
       ]);
 
       const allLines: Line[] = linesRes.data ?? [];
-      const active = allLines.filter((l) => l.status === "active").length;
-      const expiredToday = allLines.filter(
-        (l) => l.expires_at?.startsWith(today) && l.status === "expired"
-      ).length;
-      const demos = allLines.filter(
-        (l) =>
-          l.is_demo &&
-          l.created_at &&
-          l.created_at.startsWith(now.toISOString().slice(0, 7))
-      ).length;
+      setActiveLines(allLines.filter((l) => l.status === "active").length);
+      setExpiredToday(
+        allLines.filter((l) => l.expires_at?.startsWith(today) && l.status === "expired").length,
+      );
+      setResellerCount((resRes.data ?? []).length);
 
-      setStats([
-        {
-          label: "Créditos disponibles",
-          value: (reseller!.credits_total - reseller!.credits_used).toLocaleString(),
-          icon: TrendingUp,
-          color: "bg-violet-100 text-violet-600",
-        },
-        {
-          label: "Líneas activas",
-          value: active,
-          icon: Tv2,
-          color: "bg-green-100 text-green-600",
-        },
-        {
-          label: "Expiradas hoy",
-          value: expiredToday,
-          icon: Clock,
-          color: "bg-orange-100 text-orange-600",
-        },
-        {
-          label: "Demos este mes",
-          value: demos,
-          icon: FlaskConical,
-          color: "bg-blue-100 text-blue-600",
-        },
-      ]);
-
-      // Chart: lines created last 7 days
       const days = Array.from({ length: 7 }, (_, i) => {
         const d = subDays(now, 6 - i);
-        const key = d.toISOString().split("T")[0];
-        return {
-          day: format(d, "EEE", { locale: es }),
-          key,
-          líneas: 0,
-        };
+        return { day: format(d, "EEE", { locale: es }), key: d.toISOString().split("T")[0], líneas: 0 };
       });
       for (const line of allLines) {
         if (!line.created_at) continue;
-        const dayKey = line.created_at.split("T")[0];
-        const found = days.find((d) => d.key === dayKey);
+        const found = days.find((d) => d.key === line.created_at.split("T")[0]);
         if (found) found.líneas++;
       }
       setChart(days.map(({ day, líneas }) => ({ day, líneas })));
@@ -131,18 +110,72 @@ export default function OwnerDashboard() {
     );
   }
 
+  const creditsTotal     = reseller?.credits_total ?? 0;
+  const creditsUsed      = reseller?.credits_used  ?? 0;
+  const creditsAvailable = creditsTotal - creditsUsed;
+  const creditPct        = creditsTotal > 0 ? Math.round((creditsUsed / creditsTotal) * 100) : 0;
+  const demosThisMonth   = reseller?.demos_this_month ?? 0;
+  const demosLimit       = reseller?.demos_limit      ?? 50;
+
   return (
     <div className="p-6 space-y-6 max-w-5xl">
       <h1 className="text-lg font-semibold text-foreground">Dashboard</h1>
 
-      {/* Stats */}
+      {/* ── Stat cards ── */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {stats.map((s) => (
-          <OwnerStatCard key={s.label} {...s} />
-        ))}
+        <StatCard
+          label="Líneas activas"
+          value={activeLines}
+          icon={<Tv2 className="size-5" />}
+          color="green"
+        />
+        <StatCard
+          label="Expiradas hoy"
+          value={expiredToday}
+          icon={<Clock className="size-5" />}
+          color="orange"
+        />
+        <StatCard
+          label="Demos este mes"
+          value={demosThisMonth}
+          sub={`/ ${demosLimit} permitidos`}
+          icon={<FlaskConical className="size-5" />}
+          color="blue"
+        />
+        <StatCard
+          label="Resellers activos"
+          value={resellerCount}
+          icon={<Users className="size-5" />}
+          color="violet"
+        />
       </div>
 
-      {/* Chart */}
+      {/* ── Credit usage bar ── */}
+      <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-foreground">Créditos</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {creditsUsed.toLocaleString()} usados de {creditsTotal.toLocaleString()} totales
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-2xl font-bold text-violet-600">{creditsAvailable.toLocaleString()}</p>
+            <p className="text-xs text-muted-foreground">disponibles</p>
+          </div>
+        </div>
+        <div className="h-2 rounded-full bg-muted overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all ${
+              creditPct > 80 ? "bg-orange-500" : creditPct > 50 ? "bg-amber-400" : "bg-violet-600"
+            }`}
+            style={{ width: `${creditPct}%` }}
+          />
+        </div>
+        <p className="text-xs text-muted-foreground">{creditPct}% utilizado</p>
+      </div>
+
+      {/* ── Chart ── */}
       <div className="rounded-xl border border-border bg-card p-5">
         <h2 className="text-sm font-semibold text-foreground mb-4">
           Líneas creadas — últimos 7 días
@@ -152,20 +185,17 @@ export default function OwnerDashboard() {
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
             <XAxis dataKey="day" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fontSize: 12 }} allowDecimals={false} axisLine={false} tickLine={false} />
-            <Tooltip
-              contentStyle={{ borderRadius: 8, fontSize: 12 }}
-              cursor={{ fill: "#f5f3ff" }}
-            />
+            <Tooltip contentStyle={{ borderRadius: 8, fontSize: 12 }} cursor={{ fill: "#f5f3ff" }} />
             <Bar dataKey="líneas" fill="#7c3aed" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
 
-      {/* Expiring soon */}
+      {/* ── Expiring soon ── */}
       {expiringSoon.length > 0 && (
         <div className="rounded-xl border border-border bg-card p-5">
           <h2 className="text-sm font-semibold text-foreground mb-3">
-            Expiran en 48 h ({expiringSoon.length})
+            ⚠️ Expiran en 48 h ({expiringSoon.length})
           </h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -173,16 +203,23 @@ export default function OwnerDashboard() {
                 <tr className="text-left text-xs text-muted-foreground border-b border-border">
                   <th className="pb-2 font-medium">Username</th>
                   <th className="pb-2 font-medium">Paquete</th>
+                  <th className="pb-2 font-medium">Reseller</th>
                   <th className="pb-2 font-medium">Expira</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {expiringSoon.map((line) => (
-                  <tr key={line.id}>
-                    <td className="py-2 font-mono text-xs">{line.username}</td>
-                    <td className="py-2">{line.package?.name ?? "—"}</td>
-                    <td className="py-2 text-orange-600 text-xs">
-                      {format(new Date(line.expires_at), "d MMM HH:mm", { locale: es })}
+                  <tr key={line.id} className="hover:bg-muted/20">
+                    <td className="py-2.5 font-mono text-xs">{line.username}</td>
+                    <td className="py-2.5 text-muted-foreground">{line.package?.name ?? "—"}</td>
+                    <td className="py-2.5 text-muted-foreground text-xs">{(line as any).reseller?.name ?? "—"}</td>
+                    <td className="py-2.5">
+                      <span className="text-orange-600 text-xs font-medium">
+                        {formatDistanceToNowStrict(new Date(line.expires_at), { addSuffix: true, locale: es })}
+                      </span>
+                      <span className="text-muted-foreground text-xs ml-1.5">
+                        ({format(new Date(line.expires_at), "d MMM HH:mm", { locale: es })})
+                      </span>
                     </td>
                   </tr>
                 ))}
