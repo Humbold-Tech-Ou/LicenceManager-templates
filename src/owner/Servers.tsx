@@ -209,7 +209,9 @@ export default function Servers() {
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
-  const previewUrl = form.ip && form.port ? serverUrl(form) : null;
+  const previewUrl = form.ip && form.port
+    ? serverUrl({ ...form, port: Number(form.port) })
+    : null;
 
   return (
     <div className="p-6 space-y-4 max-w-4xl">
