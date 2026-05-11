@@ -15,11 +15,13 @@ import TenantDetail from "@/pages/TenantDetail";
 import Settings from "@/pages/Settings";
 import PanelVersions from "@/pages/PanelVersions";
 import PanelVersionDetail from "@/pages/PanelVersionDetail";
+import Audit from "@/pages/Audit";
 import Onboarding from "@/pages/Onboarding";
 import OAuthCallback from "@/pages/OAuthCallback";
 import TenantPortal from "@/pages/TenantPortal";
 import NotFound from "@/pages/NotFound";
 // Owner panel
+import { PreviewProvider } from "@/owner/preview/PreviewProvider";
 import OwnerLogin from "@/owner/OwnerLogin";
 import OwnerLayout from "@/owner/OwnerLayout";
 import OwnerProtectedRoute from "@/owner/OwnerProtectedRoute";
@@ -29,9 +31,8 @@ import OwnerLines from "@/owner/Lines";
 import OwnerPackages from "@/owner/Packages";
 import OwnerServers from "@/owner/Servers";
 import OwnerVOD from "@/owner/VOD";
+import OwnerVODDetail from "@/owner/VODDetail";
 import OwnerSettings from "@/owner/Settings";
-// Owner preview (public, mock data)
-import { PreviewProvider } from "@/owner/preview/PreviewProvider";
 
 const queryClient = new QueryClient();
 
@@ -43,10 +44,10 @@ const App = () => (
         <AuthProvider>
           <OwnerAuthProvider>
             <Routes>
-              <Route path="/login" element={<Navigate to="/owner/login" replace />} />
+              <Route path="/login" element={<Login />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
-              <Route path="/" element={<Navigate to="/owner/login" replace />} />
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
               {/* Super admin routes */}
               <Route element={<ProtectedRoute requireAdmin><AppLayout /></ProtectedRoute>}>
                 <Route path="/dashboard" element={<Dashboard />} />
@@ -55,6 +56,7 @@ const App = () => (
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/versions" element={<PanelVersions />} />
                 <Route path="/versions/:id" element={<PanelVersionDetail />} />
+                <Route path="/audit" element={<Audit />} />
               </Route>
               {/* Tenant routes */}
               <Route path="/portal/:tenantId" element={<ProtectedRoute><TenantPortal /></ProtectedRoute>} />
@@ -62,6 +64,7 @@ const App = () => (
               <Route path="/onboarding" element={<Onboarding />} />
               <Route path="/onboarding/:tenantId" element={<Onboarding />} />
               <Route path="/oauth/callback" element={<OAuthCallback />} />
+              <Route path="/oauth/vercel/callback" element={<OAuthCallback />} />
               {/* Owner panel routes — separate Supabase auth */}
               <Route path="/owner/login" element={<OwnerLogin />} />
               <Route path="/owner" element={<OwnerProtectedRoute />}>
@@ -72,7 +75,10 @@ const App = () => (
                   <Route path="lines" element={<OwnerLines />} />
                   <Route path="packages" element={<OwnerPackages />} />
                   <Route path="servers" element={<OwnerServers />} />
-                  <Route path="vod" element={<OwnerVOD />} />
+                  <Route path="vod">
+                    <Route index element={<OwnerVOD />} />
+                    <Route path=":id" element={<OwnerVODDetail />} />
+                  </Route>
                   <Route path="settings" element={<OwnerSettings />} />
                 </Route>
               </Route>
@@ -84,9 +90,12 @@ const App = () => (
                 <Route path="lines"     element={<OwnerLines />} />
                 <Route path="resellers" element={<OwnerResellers />} />
                 <Route path="packages"  element={<OwnerPackages />} />
-                <Route path="servers"   element={<OwnerServers />} />
-                <Route path="vod"       element={<OwnerVOD />} />
-                <Route path="settings"  element={<OwnerSettings />} />
+                <Route path="servers" element={<OwnerServers />} />
+                <Route path="vod">
+                  <Route index element={<OwnerVOD />} />
+                  <Route path=":id" element={<OwnerVODDetail />} />
+                </Route>
+                <Route path="settings" element={<OwnerSettings />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
