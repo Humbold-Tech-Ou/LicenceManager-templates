@@ -74,6 +74,20 @@ export interface Stream {
   created_at: string;
 }
 
+export interface Episode {
+  number: number;
+  title: string;
+  file_path: string | null;
+  stream_url: string | null;
+  duration_min: number | null;
+}
+
+export interface Season {
+  number: number;
+  title?: string;
+  episodes: Episode[];
+}
+
 export interface VodItem {
   id: string;
   server_id: string | null;
@@ -87,7 +101,11 @@ export interface VodItem {
   genres: string[];
   cast_list: string[];
   trailer_url: string | null;
-  seasons: unknown | null;
+  /** Physical path on the VPS, e.g. /mnt/movies/film.mkv */
+  file_path: string | null;
+  /** Release year (TMDB or manually set) */
+  year: number | null;
+  seasons: Season[] | null;
   stream_url: string | null;
   active: boolean;
   created_at: string;
