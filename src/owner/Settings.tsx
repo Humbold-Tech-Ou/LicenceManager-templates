@@ -341,30 +341,24 @@ export default function Settings() {
       <Section
         icon={<Network className="size-4" />}
         title="Control de red"
-        description="Define la profundidad máxima de la jerarquía de resellers."
+        description="Profundidad de la jerarquía de resellers (establecida por el administrador de licencias)."
       >
         <div className="space-y-1.5">
           <Label>Máximo de niveles de resellers</Label>
           <Input
             type="number"
-            min={0}
+            min={1}
             value={config.network_depth.max_levels ?? ""}
-            onChange={(e) =>
-              setConfig((c) => ({
-                ...c,
-                network_depth: { max_levels: e.target.value ? parseInt(e.target.value) : null },
-              }))
-            }
             className="max-w-xs"
-            placeholder="Ilimitado"
+            disabled
+            placeholder="Sin configurar"
           />
           <p className="text-xs text-muted-foreground">
             {config.network_depth.max_levels == null
-              ? "Sin límite: los resellers pueden crear sub-resellers sin restricción de profundidad."
-              : `Máximo ${config.network_depth.max_levels} nivel${config.network_depth.max_levels !== 1 ? "es" : ""} de anidamiento (Owner → Reseller → Sub → …).`}
+              ? "Sin límite configurado. Contacta al administrador de licencias para ajustar este valor."
+              : `Máximo ${config.network_depth.max_levels} nivel${config.network_depth.max_levels !== 1 ? "es" : ""} de anidamiento (Owner → Reseller → Sub → …). Este valor es controlado por tu licencia.`}
           </p>
         </div>
-        <SaveButton sectionKey="network_depth" label="Guardar configuración" />
       </Section>
     </div>
   );
