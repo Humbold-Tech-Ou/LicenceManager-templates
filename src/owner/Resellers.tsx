@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { ownerSupabase, useOwnerAuth } from "@/hooks/useOwnerPanel";
+import { ownerSupabase, useOwnerAuth, useOwnerConfig } from "@/hooks/useOwnerPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -132,6 +132,7 @@ interface EditForm {
 
 export default function Resellers() {
   const { reseller: me } = useOwnerAuth();
+  const config = useOwnerConfig();
   const [resellers, setResellers] = useState<Reseller[]>([]);
   const [lines, setLines] = useState<Pick<Line, "id" | "reseller_id">[]>([]);
   const [loading, setLoading] = useState(true);
@@ -232,15 +233,27 @@ export default function Resellers() {
       toast.error("Este reseller no puede crear sub-resellers (profundidad máxima alcanzada)");
       return;
     }
+
+    // SuperAdmin-controlled ceiling from panel_config.network_depth.max_levels
+    const globalMaxLevels = config.network_depth.max_levels;
+
     setSaving(true);
     try {
       const role: ResellerRole = createForm.parent_id ? "sub" : "reseller";
-      const maxDepth =
-        parentFor?.max_depth != null
-          ? parentFor.max_depth - 1
-          : createForm.max_depth !== ""
-          ? parseInt(createForm.max_depth)
-          : null;
+
+      let maxDepth: number | null;
+      if (parentFor?.max_depth != null) {
+        // Sub-reseller: inherit parent's depth - 1
+        maxDepth = parentFor.max_depth - 1;
+      } else if (createForm.max_depth !== "") {
+        // Top-level reseller with manual input — cap with SuperAdmin ceiling
+        const requested = parseInt(createForm.max_depth);
+        const ceiling = globalMaxLevels != null ? globalMaxLevels - 1 : null;
+        maxDepth = ceiling != null ? Math.min(requested, ceiling) : requested;
+      } else {
+        // Top-level reseller with no input — use SuperAdmin ceiling as default
+        maxDepth = globalMaxLevels != null ? globalMaxLevels - 1 : null;
+      }
 
       const { error } = await ownerSupabase.from("resellers").insert({
         parent_id: createForm.parent_id || null,
