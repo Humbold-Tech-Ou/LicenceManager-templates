@@ -78,6 +78,7 @@ interface FormState {
   name: string;
   duration_hours: string;
   credits_cost: string;
+  max_connections: string;
   is_demo: boolean;
   active: boolean;
 }
@@ -86,6 +87,7 @@ const EMPTY_FORM: FormState = {
   name: "",
   duration_hours: "720",
   credits_cost: "1",
+  max_connections: "1",
   is_demo: false,
   active: true,
 };
@@ -141,6 +143,7 @@ export default function Packages() {
       name: pkg.name,
       duration_hours: String(pkg.duration_hours),
       credits_cost: String(pkg.credits_cost),
+      max_connections: String(pkg.max_connections ?? 1),
       is_demo: pkg.is_demo,
       active: pkg.active,
     });
@@ -156,6 +159,7 @@ export default function Packages() {
         name: form.name,
         duration_hours: parseInt(form.duration_hours) || 720,
         credits_cost: form.is_demo ? 0 : (parseInt(form.credits_cost) || 0),
+        max_connections: Math.max(1, parseInt(form.max_connections) || 1),
         is_demo: form.is_demo,
         active: form.active,
       };
@@ -248,6 +252,7 @@ export default function Packages() {
                 <th className="px-4 py-3 font-medium">Nombre</th>
                 <th className="px-4 py-3 font-medium">Duración</th>
                 <th className="px-4 py-3 font-medium">Costo</th>
+                <th className="px-4 py-3 font-medium">Conex. máx.</th>
                 <th className="px-4 py-3 font-medium">Líneas</th>
                 <th className="px-4 py-3 font-medium">Activo</th>
                 <th className="px-4 py-3" />
@@ -282,6 +287,12 @@ export default function Packages() {
                     ) : (
                       <span className="font-medium text-violet-600">{pkg.credits_cost} cr.</span>
                     )}
+                  </td>
+                  {/* Max connections */}
+                  <td className="px-4 py-3 text-center">
+                    <span className="inline-flex items-center rounded-full bg-violet-50 text-violet-700 border border-violet-200 px-2 py-0.5 text-xs font-medium">
+                      {pkg.max_connections ?? 1}
+                    </span>
                   </td>
                   {/* Lines count */}
                   <td className="px-4 py-3 text-muted-foreground">
@@ -394,6 +405,38 @@ export default function Packages() {
                 />
               </div>
             )}
+
+            {/* Max connections */}
+            <div className="space-y-1.5">
+              <Label>Conexiones simultáneas máximas</Label>
+              <div className="flex items-center gap-2">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, max_connections: String(n) }))}
+                    className={`w-9 h-9 rounded-md border text-sm font-medium transition-colors ${
+                      form.max_connections === String(n)
+                        ? "border-violet-600 bg-violet-50 text-violet-700"
+                        : "border-border bg-background text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+                <Input
+                  type="number"
+                  min={1}
+                  max={99}
+                  value={form.max_connections}
+                  onChange={(e) => setForm((f) => ({ ...f, max_connections: e.target.value }))}
+                  className="w-20"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Número de dispositivos que pueden reproducir al mismo tiempo con este paquete.
+              </p>
+            </div>
 
             {/* Is demo toggle */}
             <div className="flex items-center gap-3">
