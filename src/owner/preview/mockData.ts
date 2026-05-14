@@ -159,7 +159,7 @@ export const mockVod: VodItem[] = [
 export const mockPanelConfig: { key: string; value: unknown }[] = [
   { key: "branding",      value: { name: "Mi Panel IPTV (Demo)", primary_color: "#7C3AED" } },
   { key: "demo_policy",   value: { global_monthly_limit: 50 } },
-  { key: "network_depth", value: { max_levels: null } },
+  { key: "network_depth", value: { max_levels: 3 } },
 ];
 
 export const mockActiveConnections = [
