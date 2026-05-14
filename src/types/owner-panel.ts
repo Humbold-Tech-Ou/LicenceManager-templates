@@ -28,6 +28,7 @@ export interface Package {
   name: string;
   duration_hours: number;
   credits_cost: number;
+  max_connections: number;
   is_demo: boolean;
   active: boolean;
   created_at: string;
