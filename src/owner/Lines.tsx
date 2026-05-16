@@ -221,7 +221,7 @@ export default function Lines() {
         is_demo: pkg.is_demo,
         status: "active",
         expires_at: expiresAt,
-        max_connections: 1,
+        max_connections: Math.max(1, pkg.max_connections ?? 1),
         notes: form.notes || null,
       });
       if (error) throw error;
