@@ -482,19 +482,39 @@ export default function Resellers() {
         maxDepth = globalMaxLevels != null ? globalMaxLevels - 1 : null;
       }
 
-      const { error } = await ownerSupabase.from("resellers").insert({
-        parent_id: createForm.parent_id || null,
-        role,
-        name: createForm.name,
-        email: createForm.email,
-        password_hash: createForm.password,
-        credits_total: credits,
-        credits_used: 0,
-        demos_limit: parseInt(createForm.demos_limit) || 50,
-        max_depth: maxDepth,
-        status: "active",
+      // Create the reseller via the License Manager edge function. It creates
+      // the auth.users entry in the tenant's Supabase AND the resellers row.
+      // A direct `insert` would skip Supabase Auth and the new user could
+      // never log in.
+      const LICENSE_URL = "https://rrresinucnxfdaaqcqcp.supabase.co";
+      const LICENSE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJycmVzaW51Y254ZmRhYXFjcWNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMzI5OTksImV4cCI6MjA5MTkwODk5OX0.PHQTe4-m5Nv16SXK64xLSybO-rh9_ZLiCiRO_KRam2I";
+      const tenantToken = (import.meta.env.VITE_TENANT_TOKEN as string | undefined) ?? "";
+      const { data: { session } } = await ownerSupabase.auth.getSession();
+      const callerJwt = session?.access_token ?? "";
+      const res = await fetch(`${LICENSE_URL}/functions/v1/create-tenant-reseller`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": LICENSE_ANON,
+          "Authorization": `Bearer ${LICENSE_ANON}`,
+          "X-Caller-JWT": callerJwt,
+        },
+        body: JSON.stringify({
+          tenant_token: tenantToken,
+          parent_id: createForm.parent_id || null,
+          role,
+          name: createForm.name,
+          email: createForm.email,
+          password: createForm.password,
+          credits_total: credits,
+          demos_limit: parseInt(createForm.demos_limit) || 50,
+          max_depth: maxDepth,
+        }),
       });
-      if (error) throw error;
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok || payload?.error) {
+        throw new Error(payload?.error ?? `HTTP ${res.status}`);
+      }
       if (credits > 0) {
         await ownerSupabase.from("resellers").update({ credits_used: me.credits_used + credits }).eq("id", me.id);
       }
