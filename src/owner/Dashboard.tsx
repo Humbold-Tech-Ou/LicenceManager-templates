@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ownerSupabase, useOwnerAuth } from "@/hooks/useOwnerPanel";
-import { Loader2, Tv2, Clock, FlaskConical, Users, Wifi } from "lucide-react";
+import { Loader2, Tv2, Clock, FlaskConical, Users, Wifi, Server } from "lucide-react";
 import { format, formatDistanceToNowStrict, subDays } from "date-fns";
 import { es } from "date-fns/locale";
 import {
@@ -52,6 +52,7 @@ export default function OwnerDashboard() {
   const [expiredToday, setExpiredToday] = useState(0);
   const [resellerCount, setResellerCount] = useState(0);
   const [activeConnections, setActiveConnections] = useState(0);
+  const [serverCount, setServerCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -66,7 +67,7 @@ export default function OwnerDashboard() {
       const in48h = new Date(now.getTime() + 48 * 3600 * 1000).toISOString();
       const today = now.toISOString().split("T")[0];
 
-      const [linesRes, expRes, resRes, connRes] = await Promise.all([
+      const [linesRes, expRes, resRes, connRes, srvRes] = await Promise.all([
         ownerSupabase.from("lines").select("id, status, is_demo, created_at, expires_at"),
         ownerSupabase
           .from("lines")
@@ -77,6 +78,7 @@ export default function OwnerDashboard() {
           .order("expires_at"),
         ownerSupabase.from("resellers").select("id").neq("id", reseller!.id),
         ownerSupabase.from("active_connections").select("id"),
+        ownerSupabase.from("servers").select("id").eq("status", "active"),
       ]);
 
       const allLines: Line[] = linesRes.data ?? [];
@@ -86,6 +88,7 @@ export default function OwnerDashboard() {
       );
       setResellerCount((resRes.data ?? []).length);
       setActiveConnections((connRes.data ?? []).length);
+      setServerCount((srvRes.data ?? []).length);
 
       const days = Array.from({ length: 7 }, (_, i) => {
         const d = subDays(now, 6 - i);
@@ -125,7 +128,7 @@ export default function OwnerDashboard() {
       <h1 className="text-lg font-semibold text-foreground">Dashboard</h1>
 
       {/* ── Stat cards ── */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <StatCard
           label="Líneas activas"
           value={activeLines}
@@ -140,11 +143,18 @@ export default function OwnerDashboard() {
           color="violet"
         />
         <StatCard
+          label="Servidores"
+          value={serverCount}
+          sub="activos"
+          icon={<Server className="size-5" />}
+          color="blue"
+        />
+        <StatCard
           label="Demos este mes"
           value={demosThisMonth}
           sub={`/ ${demosLimit} permitidos`}
           icon={<FlaskConical className="size-5" />}
-          color="blue"
+          color="orange"
         />
         <StatCard
           label="Resellers"
