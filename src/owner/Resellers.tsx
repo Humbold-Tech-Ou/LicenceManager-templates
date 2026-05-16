@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { ownerSupabase, useOwnerAuth, useOwnerConfig } from "@/hooks/useOwnerPanel";
+import { ownerSupabase, useOwnerAuth, useOwnerConfig, useCascadingImpersonation } from "@/hooks/useOwnerPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,9 +47,36 @@ import {
   Users,
   CreditCard,
   X,
+  List,
+  GitFork,
+  ChevronRight,
+  ChevronDown,
+  Coins,
+  Eye,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { Reseller, ResellerRole, Line } from "@/types/owner-panel";
+
+// ── Subtree utility ───────────────────────────────────────────────────────────
+
+/** Returns the root node + all its descendants from a flat reseller list. */
+function getSubtree(all: Reseller[], rootId: string): Reseller[] {
+  const result: Reseller[] = [];
+  const queue: string[] = [rootId];
+  const seen = new Set<string>();
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    const node = all.find((r) => r.id === current);
+    if (node) {
+      result.push(node);
+      all.filter((r) => r.parent_id === current).forEach((c) => queue.push(c.id));
+    }
+  }
+  return result;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -128,14 +155,200 @@ interface EditForm {
   max_depth: string;
 }
 
+// ── Credit Tree ───────────────────────────────────────────────────────────────
+
+interface TreeNode {
+  reseller: Reseller;
+  children: TreeNode[];
+  totalCredits: number;   // credits_total of entire subtree
+  usedCredits: number;    // credits_used of entire subtree
+  lineCount: number;      // lines count in entire subtree
+}
+
+function buildTree(
+  all: Reseller[],
+  lineCount: Record<string, number>,
+  parentId: string | null
+): TreeNode[] {
+  return all
+    .filter((r) => r.parent_id === parentId)
+    .map((r) => {
+      const children = buildTree(all, lineCount, r.id);
+      const subtreeTotalCredits = children.reduce((s, c) => s + c.totalCredits, 0) + r.credits_total;
+      const subtreeUsedCredits  = children.reduce((s, c) => s + c.usedCredits,  0) + r.credits_used;
+      const subtreeLines        = children.reduce((s, c) => s + c.lineCount,     0) + (lineCount[r.id] ?? 0);
+      return { reseller: r, children, totalCredits: subtreeTotalCredits, usedCredits: subtreeUsedCredits, lineCount: subtreeLines };
+    });
+}
+
+function TreeNodeRow({
+  node,
+  depth,
+  lineCount,
+  onCredits,
+  onCreateSub,
+  onEdit,
+  onToggleStatus,
+  onDelete,
+  onImpersonate,
+  meId,
+}: {
+  node: TreeNode;
+  depth: number;
+  lineCount: Record<string, number>;
+  onCredits: (r: Reseller) => void;
+  onCreateSub: (r: Reseller) => void;
+  onEdit: (r: Reseller) => void;
+  onToggleStatus: (r: Reseller) => void;
+  onDelete: (r: Reseller) => void;
+  onImpersonate?: (r: Reseller) => void;
+  meId?: string;
+}) {
+  const [expanded, setExpanded] = useState(depth < 2);
+  const r = node.reseller;
+  const hasChildren = node.children.length > 0;
+  const isMe = r.id === meId;
+
+  const pct = r.credits_total > 0
+    ? Math.min(100, Math.round((r.credits_used / r.credits_total) * 100))
+    : 0;
+  const barColor = pct >= 80 ? "bg-red-500" : pct >= 50 ? "bg-amber-400" : "bg-violet-500";
+
+  return (
+    <>
+      <div
+        className={cn(
+          "flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm transition-colors",
+          isMe ? "bg-violet-50 border border-violet-200" : "hover:bg-muted/40",
+          r.status === "suspended" && "opacity-50"
+        )}
+        style={{ marginLeft: `${depth * 20}px` }}
+      >
+        {/* Expand toggle */}
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className={cn("size-5 shrink-0 flex items-center justify-center rounded text-muted-foreground", !hasChildren && "invisible")}
+        >
+          {expanded ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+        </button>
+
+        {/* Name + role */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className={cn("font-medium truncate", isMe && "text-violet-700")}>{r.name}</span>
+            {isMe && <span className="text-[10px] bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded-full font-medium">Tú</span>}
+            <span className={cn(
+              "text-[10px] rounded-full px-1.5 py-0.5 font-medium",
+              r.role === "owner"    ? "bg-violet-100 text-violet-700" :
+              r.role === "reseller" ? "bg-blue-100 text-blue-700" :
+                                       "bg-zinc-100 text-zinc-600"
+            )}>
+              {r.role === "owner" ? "Dueño" : r.role === "reseller" ? "Reseller" : "Sub"}
+            </span>
+            {r.status === "suspended" && (
+              <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">Suspendido</span>
+            )}
+          </div>
+          <p className="text-[11px] text-muted-foreground truncate">{r.email}</p>
+        </div>
+
+        {/* Own credits bar */}
+        <div className="hidden sm:flex flex-col items-end gap-0.5 min-w-[90px]">
+          <div className="flex items-center gap-1 text-xs">
+            <Coins className="size-3 text-violet-500" />
+            <span className="font-medium">{r.credits_total - r.credits_used}</span>
+            <span className="text-muted-foreground">/ {r.credits_total}</span>
+          </div>
+          <div className="h-1 w-20 rounded-full bg-muted overflow-hidden">
+            <div className={cn("h-full rounded-full", barColor)} style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+
+        {/* Subtree totals */}
+        {hasChildren && (
+          <div className="hidden md:flex flex-col items-end gap-0.5 min-w-[80px]">
+            <span className="text-[10px] text-muted-foreground">subtree</span>
+            <span className="text-xs font-medium text-foreground">
+              {node.usedCredits} / {node.totalCredits} cr.
+            </span>
+          </div>
+        )}
+
+        {/* Lines */}
+        <span className="text-xs text-muted-foreground flex items-center gap-1 shrink-0">
+          <Users className="size-3" />{lineCount[r.id] ?? 0}
+        </span>
+
+        {/* Actions */}
+        {!isMe && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="size-7 shrink-0">
+                <MoreHorizontal className="size-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {onImpersonate && (
+                <>
+                  <DropdownMenuItem onClick={() => onImpersonate(r)}>
+                    <Eye className="size-3.5 mr-2" />Ver como este reseller
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+              <DropdownMenuItem onClick={() => onCredits(r)}>
+                <CreditCard className="size-3.5 mr-2" />Asignar créditos
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onCreateSub(r)}>
+                <Plus className="size-3.5 mr-2" />Crear sub-reseller
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => onEdit(r)}>Editar</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onToggleStatus(r)}>
+                {r.status === "active" ? "Suspender" : "Reactivar"}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => onDelete(r)}>
+                Eliminar
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+
+      {/* Children */}
+      {expanded && node.children.map((child) => (
+        <TreeNodeRow
+          key={child.reseller.id}
+          node={child}
+          depth={depth + 1}
+          lineCount={lineCount}
+          onCredits={onCredits}
+          onCreateSub={onCreateSub}
+          onEdit={onEdit}
+          onToggleStatus={onToggleStatus}
+          onDelete={onDelete}
+          onImpersonate={onImpersonate}
+          meId={meId}
+        />
+      ))}
+    </>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function Resellers() {
   const { reseller: me } = useOwnerAuth();
   const config = useOwnerConfig();
+  const { isImpersonationMode, setImpersonatedReseller } = useCascadingImpersonation();
   const [resellers, setResellers] = useState<Reseller[]>([]);
   const [lines, setLines] = useState<Pick<Line, "id" | "reseller_id">[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // View mode
+  const [viewMode, setViewMode] = useState<"list" | "tree">("list");
 
   // Filters
   const [search, setSearch] = useState("");
@@ -166,13 +379,27 @@ export default function Resellers() {
       ownerSupabase.from("resellers").select("*").order("created_at"),
       ownerSupabase.from("lines").select("id,reseller_id"),
     ]);
-    setResellers(
-      (rData ?? []).map((r) => ({
-        ...r,
-        credits_available: r.credits_total - r.credits_used,
-      }))
+
+    const allResellers: Reseller[] = (rData ?? []).map((r) => ({
+      ...r,
+      credits_available: r.credits_total - r.credits_used,
+    }));
+
+    // App-level subtree filter (safety net for DBs without updated RLS).
+    // Owners see everything; resellers/subs only see their own subtree.
+    const visibleResellers =
+      !me || me.role === "owner"
+        ? allResellers
+        : getSubtree(allResellers, me.id);
+
+    // Filter lines to only those belonging to visible resellers
+    const visibleIds = new Set(visibleResellers.map((r) => r.id));
+    const visibleLines = (lData ?? []).filter(
+      (l) => !l.reseller_id || visibleIds.has(l.reseller_id)
     );
-    setLines(lData ?? []);
+
+    setResellers(visibleResellers);
+    setLines(visibleLines);
     setLoading(false);
   }
 
@@ -393,13 +620,34 @@ export default function Resellers() {
             </p>
           )}
         </div>
-        <Button
-          size="sm"
-          onClick={() => openCreate()}
-          className="bg-violet-600 hover:bg-violet-700 gap-1.5 shrink-0"
-        >
-          <Plus className="size-4" /> Nuevo reseller
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          {/* View toggle */}
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setViewMode("list")}
+              className={cn("flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-colors",
+                viewMode === "list" ? "bg-foreground text-background" : "text-muted-foreground hover:bg-muted")}
+            >
+              <List className="size-3.5" />Lista
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("tree")}
+              className={cn("flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium transition-colors border-l border-border",
+                viewMode === "tree" ? "bg-foreground text-background" : "text-muted-foreground hover:bg-muted")}
+            >
+              <GitFork className="size-3.5" />Árbol
+            </button>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => openCreate()}
+            className="bg-violet-600 hover:bg-violet-700 gap-1.5"
+          >
+            <Plus className="size-4" /> Nuevo reseller
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -452,18 +700,64 @@ export default function Resellers() {
         )}
       </div>
 
-      {/* Table */}
-      {loading ? (
+      {/* Tree view */}
+      {viewMode === "tree" && (
+        loading ? (
+          <div className="flex items-center justify-center h-40">
+            <Loader2 className="size-6 animate-spin text-violet-600" />
+          </div>
+        ) : (
+          <div className="rounded-xl border border-border bg-card p-4 space-y-1">
+            <div className="flex items-center justify-between mb-3 pb-2 border-b border-border">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                Árbol de créditos — {resellers.length + 1} nodos
+              </p>
+              <span className="text-xs text-muted-foreground">
+                Total asignado: <span className="font-semibold text-foreground">
+                  {resellers.reduce((s, r) => s + r.credits_total, me?.credits_total ?? 0)} cr.
+                </span>
+              </span>
+            </div>
+            {/* Owner (me) as root */}
+            {me && (() => {
+              const meNode: TreeNode = {
+                reseller: me,
+                children: buildTree(resellers, lineCount, me.id),
+                totalCredits: resellers.reduce((s, r) => s + r.credits_total, me.credits_total),
+                usedCredits:  resellers.reduce((s, r) => s + r.credits_used,  me.credits_used),
+                lineCount: resellers.reduce((s, r) => s + (lineCount[r.id] ?? 0), lineCount[me.id] ?? 0),
+              };
+              return (
+                <TreeNodeRow
+                  node={meNode}
+                  depth={0}
+                  lineCount={lineCount}
+                  onCredits={openCredits}
+                  onCreateSub={openCreate}
+                  onEdit={openEdit}
+                  onToggleStatus={toggleStatus}
+                  onDelete={(r) => { setDeleteTarget(r); setDeleteConfirm(true); }}
+                  onImpersonate={isImpersonationMode ? setImpersonatedReseller : undefined}
+                  meId={me.id}
+                />
+              );
+            })()}
+          </div>
+        )
+      )}
+
+      {/* List view (Table) */}
+      {viewMode === "list" && loading ? (
         <div className="flex items-center justify-center h-40">
           <Loader2 className="size-6 animate-spin text-violet-600" />
         </div>
-      ) : filtered.length === 0 ? (
+      ) : viewMode === "list" && filtered.length === 0 ? (
         <div className="rounded-xl border border-border bg-card p-10 text-center">
           <p className="text-sm text-muted-foreground">
             {hasFilters ? "No hay resellers que coincidan con los filtros." : "No hay resellers aún. Crea el primero."}
           </p>
         </div>
-      ) : (
+      ) : viewMode === "list" && (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-muted/40">
@@ -528,6 +822,14 @@ export default function Resellers() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        {isImpersonationMode && (
+                          <>
+                            <DropdownMenuItem onClick={() => setImpersonatedReseller(r)}>
+                              <Eye className="size-3.5 mr-2" /> Ver como este reseller
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                          </>
+                        )}
                         <DropdownMenuItem onClick={() => openCredits(r)}>
                           <CreditCard className="size-3.5 mr-2" /> Asignar créditos
                         </DropdownMenuItem>
