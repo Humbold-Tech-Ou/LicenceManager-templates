@@ -461,7 +461,7 @@ export default function Servers() {
 
       {/* ── Sheet ── */}
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-        <SheetContent>
+        <SheetContent className="overflow-y-auto">
           <SheetHeader>
             <SheetTitle>{editing ? "Editar servidor" : "Nuevo servidor"}</SheetTitle>
           </SheetHeader>
