@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ownerSupabase, useOwnerAuth } from "@/hooks/useOwnerPanel";
-import { Loader2, Tv2, Clock, FlaskConical, Users } from "lucide-react";
+import { Loader2, Tv2, Clock, FlaskConical, Users, Wifi } from "lucide-react";
 import { format, formatDistanceToNowStrict, subDays } from "date-fns";
 import { es } from "date-fns/locale";
 import {
@@ -51,6 +51,7 @@ export default function OwnerDashboard() {
   const [activeLines, setActiveLines] = useState(0);
   const [expiredToday, setExpiredToday] = useState(0);
   const [resellerCount, setResellerCount] = useState(0);
+  const [activeConnections, setActiveConnections] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -65,7 +66,7 @@ export default function OwnerDashboard() {
       const in48h = new Date(now.getTime() + 48 * 3600 * 1000).toISOString();
       const today = now.toISOString().split("T")[0];
 
-      const [linesRes, expRes, resRes] = await Promise.all([
+      const [linesRes, expRes, resRes, connRes] = await Promise.all([
         ownerSupabase.from("lines").select("id, status, is_demo, created_at, expires_at"),
         ownerSupabase
           .from("lines")
@@ -75,6 +76,7 @@ export default function OwnerDashboard() {
           .eq("status", "active")
           .order("expires_at"),
         ownerSupabase.from("resellers").select("id").neq("id", reseller!.id),
+        ownerSupabase.from("active_connections").select("id"),
       ]);
 
       const allLines: Line[] = linesRes.data ?? [];
@@ -83,6 +85,7 @@ export default function OwnerDashboard() {
         allLines.filter((l) => l.expires_at?.startsWith(today) && l.status === "expired").length,
       );
       setResellerCount((resRes.data ?? []).length);
+      setActiveConnections((connRes.data ?? []).length);
 
       const days = Array.from({ length: 7 }, (_, i) => {
         const d = subDays(now, 6 - i);
@@ -130,10 +133,11 @@ export default function OwnerDashboard() {
           color="green"
         />
         <StatCard
-          label="Expiradas hoy"
-          value={expiredToday}
-          icon={<Clock className="size-5" />}
-          color="orange"
+          label="Conectados ahora"
+          value={activeConnections}
+          sub="streams en vivo"
+          icon={<Wifi className="size-5" />}
+          color="violet"
         />
         <StatCard
           label="Demos este mes"
@@ -143,10 +147,11 @@ export default function OwnerDashboard() {
           color="blue"
         />
         <StatCard
-          label="Resellers activos"
+          label="Resellers"
           value={resellerCount}
+          sub={expiredToday > 0 ? `${expiredToday} línea${expiredToday > 1 ? "s" : ""} exp. hoy` : undefined}
           icon={<Users className="size-5" />}
-          color="violet"
+          color="orange"
         />
       </div>
 
