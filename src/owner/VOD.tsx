@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/select";
 import {
   Loader2, Plus, Search, Film, Tv, MoreHorizontal, Star, X,
-  Upload, FolderOpen, ChevronRight, ArrowLeft,
+  Upload, FolderOpen, ChevronRight, ArrowLeft, AlertTriangle, CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { VodItem, VodType, Server } from "@/types/owner-panel";
@@ -39,9 +39,48 @@ interface TmdbResult {
   name?: string;
   overview: string;
   poster_path: string | null;
+  backdrop_path: string | null;
   vote_average: number;
   release_date?: string;
   first_air_date?: string;
+}
+
+interface TmdbDetails {
+  genres: { id: number; name: string }[];
+  credits?: { cast: { name: string; order: number }[] };
+  videos?: { results: { key: string; site: string; type: string }[] };
+  backdrop_path: string | null;
+}
+
+// ── Filename cleaner for bulk TMDB auto-match ─────────────────────────────────
+
+const QUALITY_TAGS = /\b(1080p|720p|480p|4k|2160p|bluray|blu-ray|bdrip|webrip|web-dl|hdtv|hdrip|x264|x265|hevc|avc|aac|mp3|dvdrip|xvid|h264|h265|remux|proper|repack|extended|theatrical|unrated)\b/gi;
+const YEAR_SUFFIX  = /\s*[\[(]?\b(19|20)\d{2}\b[\])]?\s*$/;
+
+function cleanFilename(raw: string): string {
+  return raw
+    .replace(/\.[^.]+$/, "")         // strip extension
+    .replace(/[._]/g, " ")           // dots/underscores → spaces
+    .replace(QUALITY_TAGS, " ")      // remove quality tags
+    .replace(YEAR_SUFFIX, "")        // trailing year
+    .replace(/\s{2,}/g, " ")         // collapse spaces
+    .trim();
+}
+
+function extractYear(raw: string): string {
+  const m = raw.match(/\b(19|20)\d{2}\b/);
+  return m ? m[0] : "";
+}
+
+/** Naive similarity 0–1 between two strings (lowercase, no punctuation) */
+function titleSimilarity(a: string, b: string): number {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+  const na = norm(a); const nb = norm(b);
+  if (na === nb) return 1;
+  if (na.includes(nb) || nb.includes(na)) return 0.85;
+  const wa = new Set(na.split(" ")); const wb = nb.split(" ");
+  const common = wb.filter(w => w.length > 2 && wa.has(w)).length;
+  return common / Math.max(wa.size, wb.length);
 }
 
 // ── Step-dialog form state ────────────────────────────────────────────────────
@@ -53,14 +92,21 @@ interface AddForm {
   file_path: string;
   stream_url: string;
   poster_url: string;
+  backdrop_url: string;
   rating: string;
   year: string;
   overview: string;
+  genres: string[];
+  cast_list: string[];
+  trailer_url: string;
+  tmdb_status: "matched" | "pending_review" | "manual" | "no_metadata";
 }
 
 const EMPTY_ADD: AddForm = {
   title: "", type: "movie", server_id: "", file_path: "",
-  stream_url: "", poster_url: "", rating: "", year: "", overview: "",
+  stream_url: "", poster_url: "", backdrop_url: "", rating: "", year: "",
+  overview: "", genres: [], cast_list: [], trailer_url: "",
+  tmdb_status: "no_metadata",
 };
 
 // ── Bulk-import form state ────────────────────────────────────────────────────
@@ -107,7 +153,7 @@ export default function VOD() {
   const [loading, setLoading] = useState(true);
 
   // ── Filters
-  const [tabType,       setTabType]       = useState<"all" | VodType>("all");
+  const [tabType,       setTabType]       = useState<"all" | VodType | "pending">("all");
   const [search,        setSearch]        = useState("");
   const [filterStatus,  setFilterStatus]  = useState<"all" | "active" | "inactive">("all");
 
@@ -117,6 +163,7 @@ export default function VOD() {
   const [tmdbQuery,      setTmdbQuery]      = useState("");
   const [tmdbResults,    setTmdbResults]    = useState<TmdbResult[]>([]);
   const [tmdbLoading,    setTmdbLoading]    = useState(false);
+  const [tmdbDetailLoading, setTmdbDetailLoading] = useState(false);
   const [selectedTmdb,   setSelectedTmdb]   = useState<TmdbResult | null>(null);
   const [addForm,        setAddForm]        = useState<AddForm>(EMPTY_ADD);
   const [addSaving,      setAddSaving]      = useState(false);
@@ -126,13 +173,28 @@ export default function VOD() {
   const [editOpen,       setEditOpen]       = useState(false);
   const [editForm,       setEditForm]       = useState<AddForm>(EMPTY_ADD);
   const [editSaving,     setEditSaving]     = useState(false);
+  // TMDB re-linking inside edit dialog
+  const [editTmdbQuery,  setEditTmdbQuery]  = useState("");
+  const [editTmdbResults, setEditTmdbResults] = useState<TmdbResult[]>([]);
+  const [editTmdbLoading, setEditTmdbLoading] = useState(false);
+  const [editTmdbDetailLoading, setEditTmdbDetailLoading] = useState(false);
+  const [editTmdbOpen,   setEditTmdbOpen]   = useState(false);
 
   // ── Bulk import dialog
-  const [bulkOpen,       setBulkOpen]       = useState(false);
-  const [bulkForm,       setBulkForm]       = useState<BulkForm>(EMPTY_BULK);
-  const [bulkImporting,  setBulkImporting]  = useState(false);
-  const [bulkTab,        setBulkTab]        = useState<"text" | "csv">("text");
+  const [bulkOpen,         setBulkOpen]         = useState(false);
+  const [bulkForm,         setBulkForm]         = useState<BulkForm>(EMPTY_BULK);
+  const [bulkImporting,    setBulkImporting]    = useState(false);
+  const [bulkTab,          setBulkTab]          = useState<"text" | "csv">("text");
+  const [bulkAutoTmdb,     setBulkAutoTmdb]     = useState(true);
+  const [bulkProgress,     setBulkProgress]     = useState<{ done: number; total: number; matched: number; pending: number } | null>(null);
   const csvRef = useRef<HTMLInputElement>(null);
+
+  // ── Pending review — manual TMDB match
+  const [reviewTarget,     setReviewTarget]     = useState<VodItem | null>(null);
+  const [reviewTmdbQuery,  setReviewTmdbQuery]  = useState("");
+  const [reviewTmdbResults,setReviewTmdbResults]= useState<TmdbResult[]>([]);
+  const [reviewTmdbLoading,setReviewTmdbLoading]= useState(false);
+  const [reviewSaving,     setReviewSaving]     = useState(false);
 
   // ── Delete
   const [deleteTarget,  setDeleteTarget]  = useState<VodItem | null>(null);
@@ -153,18 +215,26 @@ export default function VOD() {
   }
 
   // ── Stats
-  const movieCount  = useMemo(() => items.filter(i => i.type === "movie").length,  [items]);
-  const seriesCount = useMemo(() => items.filter(i => i.type === "series").length, [items]);
-  const activeCount = useMemo(() => items.filter(i => i.active).length,            [items]);
+  const movieCount   = useMemo(() => items.filter(i => i.type === "movie").length,  [items]);
+  const seriesCount  = useMemo(() => items.filter(i => i.type === "series").length, [items]);
+  const activeCount  = useMemo(() => items.filter(i => i.active).length,            [items]);
+  // Items that need manual TMDB review
+  const pendingItems = useMemo(() =>
+    items.filter(i => (i as any).tmdb_status === "pending_review"),
+    [items]);
 
   // ── Filtered list
-  const filtered = useMemo(() => items.filter(i => {
-    if (tabType !== "all"         && i.type   !== tabType)    return false;
-    if (filterStatus === "active"   && !i.active)             return false;
-    if (filterStatus === "inactive" &&  i.active)             return false;
-    if (search && !i.title.toLowerCase().includes(search.toLowerCase())) return false;
-    return true;
-  }), [items, tabType, filterStatus, search]);
+  const filtered = useMemo(() => {
+    if (tabType === "pending") return pendingItems;
+    return items.filter(i => {
+      if ((i as any).tmdb_status === "pending_review") return false; // exclude from normal tabs
+      if (tabType !== "all"          && i.type   !== tabType)    return false;
+      if (filterStatus === "active"   && !i.active)              return false;
+      if (filterStatus === "inactive" &&  i.active)              return false;
+      if (search && !i.title.toLowerCase().includes(search.toLowerCase())) return false;
+      return true;
+    });
+  }, [items, tabType, filterStatus, search, pendingItems]);
 
   const hasFilters = search !== "" || filterStatus !== "all";
 
@@ -199,23 +269,66 @@ export default function VOD() {
     }
   }
 
-  function selectTmdb(r: TmdbResult) {
+  /** Fetch full metadata (genres, cast, trailer, backdrop) after the user picks a result */
+  async function fetchTmdbDetails(result: TmdbResult): Promise<Partial<AddForm>> {
+    const apiKey = config.branding?.tmdb_api_key;
+    if (!apiKey) return {};
+    const mediaType = result.media_type === "tv" ? "tv" : "movie";
+    try {
+      const res = await fetch(
+        `https://api.themoviedb.org/3/${mediaType}/${result.id}?api_key=${apiKey}&language=es-ES&append_to_response=credits,videos`
+      );
+      if (!res.ok) return {};
+      const d: TmdbDetails = await res.json();
+
+      const genres = (d.genres ?? []).map((g) => g.name);
+      const cast_list = (d.credits?.cast ?? [])
+        .sort((a, b) => a.order - b.order)
+        .slice(0, 8)
+        .map((c) => c.name);
+      const trailer = (d.videos?.results ?? [])
+        .find((v) => v.site === "YouTube" && v.type === "Trailer");
+      const trailer_url = trailer ? `https://www.youtube.com/watch?v=${trailer.key}` : "";
+      const backdrop_url = d.backdrop_path
+        ? `https://image.tmdb.org/t/p/w1280${d.backdrop_path}`
+        : "";
+
+      return { genres, cast_list, trailer_url, backdrop_url };
+    } catch {
+      return {};
+    }
+  }
+
+  async function selectTmdb(r: TmdbResult) {
     setSelectedTmdb(r);
+    // Set base fields immediately from search result
     setAddForm(f => ({
       ...f,
-      title:     r.title ?? r.name ?? "",
-      type:      r.media_type === "tv" ? "series" : "movie",
-      overview:  r.overview ?? "",
+      title:      r.title ?? r.name ?? "",
+      type:       r.media_type === "tv" ? "series" : "movie",
+      overview:   r.overview ?? "",
       poster_url: r.poster_path ? `https://image.tmdb.org/t/p/w500${r.poster_path}` : "",
-      rating:    String(r.vote_average?.toFixed(1) ?? ""),
-      year:      String((r.release_date ?? r.first_air_date ?? "").slice(0, 4)),
+      backdrop_url: r.backdrop_path ? `https://image.tmdb.org/t/p/w1280${r.backdrop_path}` : "",
+      rating:     String(r.vote_average?.toFixed(1) ?? ""),
+      year:       String((r.release_date ?? r.first_air_date ?? "").slice(0, 4)),
+      tmdb_status: "matched",
     }));
     setTmdbResults([]);
+
+    // Fetch full details (cast, genres, trailer) async
+    setTmdbDetailLoading(true);
+    const details = await fetchTmdbDetails(r);
+    setAddForm(f => ({ ...f, ...details }));
+    setTmdbDetailLoading(false);
   }
 
   function clearTmdb() {
     setSelectedTmdb(null);
-    setAddForm(f => ({ ...f, poster_url: "", rating: "", year: "", overview: "" }));
+    setAddForm(f => ({
+      ...f,
+      poster_url: "", backdrop_url: "", rating: "", year: "", overview: "",
+      genres: [], cast_list: [], trailer_url: "", tmdb_status: "no_metadata",
+    }));
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -243,19 +356,21 @@ export default function VOD() {
     setAddSaving(true);
     try {
       const { error } = await ownerSupabase.from("vod_items").insert({
-        title:      addForm.title.trim(),
-        type:       addForm.type,
-        server_id:  addForm.server_id || null,
-        file_path:  addForm.file_path.trim() || null,
-        stream_url: addForm.stream_url.trim() || null,
-        poster_url: addForm.poster_url || null,
-        overview:   addForm.overview || null,
-        rating:     addForm.rating ? parseFloat(addForm.rating) : null,
-        year:       addForm.year   ? parseInt(addForm.year, 10) : null,
-        tmdb_id:    selectedTmdb?.id ?? null,
-        genres:     [],
-        cast_list:  [],
-        active:     true,
+        title:        addForm.title.trim(),
+        type:         addForm.type,
+        server_id:    addForm.server_id || null,
+        file_path:    addForm.file_path.trim() || null,
+        stream_url:   addForm.stream_url.trim() || null,
+        poster_url:   addForm.poster_url || null,
+        backdrop_url: addForm.backdrop_url || null,
+        overview:     addForm.overview || null,
+        rating:       addForm.rating ? parseFloat(addForm.rating) : null,
+        year:         addForm.year   ? parseInt(addForm.year, 10) : null,
+        tmdb_id:      selectedTmdb?.id ?? null,
+        genres:       addForm.genres,
+        cast_list:    addForm.cast_list,
+        trailer_url:  addForm.trailer_url || null,
+        active:       true,
       });
       if (error) throw error;
       toast.success("Contenido añadido");
@@ -275,17 +390,63 @@ export default function VOD() {
   function openEdit(item: VodItem) {
     setEditItem(item);
     setEditForm({
-      title:      item.title,
-      type:       item.type,
-      server_id:  item.server_id ?? "",
-      file_path:  item.file_path ?? "",
-      stream_url: item.stream_url ?? "",
-      poster_url: item.poster_url ?? "",
-      rating:     item.rating != null ? String(item.rating) : "",
-      year:       item.year   != null ? String(item.year)   : "",
-      overview:   item.overview ?? "",
+      title:        item.title,
+      type:         item.type,
+      server_id:    item.server_id ?? "",
+      file_path:    item.file_path ?? "",
+      stream_url:   item.stream_url ?? "",
+      poster_url:   item.poster_url ?? "",
+      backdrop_url: item.backdrop_url ?? "",
+      rating:       item.rating != null ? String(item.rating) : "",
+      year:         item.year   != null ? String(item.year)   : "",
+      overview:     item.overview ?? "",
+      genres:       item.genres ?? [],
+      cast_list:    item.cast_list ?? [],
+      trailer_url:  item.trailer_url ?? "",
+      tmdb_status:  "matched",
     });
+    setEditTmdbQuery("");
+    setEditTmdbResults([]);
+    setEditTmdbOpen(false);
     setEditOpen(true);
+  }
+
+  async function searchEditTmdb() {
+    const apiKey = config.branding?.tmdb_api_key;
+    if (!apiKey) { toast.error("Configura tu TMDB API Key en Configuración"); return; }
+    if (!editTmdbQuery.trim()) return;
+    setEditTmdbLoading(true);
+    try {
+      const res = await fetch(
+        `https://api.themoviedb.org/3/search/multi?query=${encodeURIComponent(editTmdbQuery)}&api_key=${apiKey}&language=es-ES`
+      );
+      const data = await res.json();
+      setEditTmdbResults(
+        (data.results ?? []).filter((r: TmdbResult) => r.media_type === "movie" || r.media_type === "tv")
+      );
+    } catch { toast.error("Error buscando en TMDB"); }
+    finally { setEditTmdbLoading(false); }
+  }
+
+  async function selectEditTmdb(r: TmdbResult) {
+    setEditTmdbResults([]);
+    setEditTmdbOpen(false);
+    setEditForm(f => ({
+      ...f,
+      title:        r.title ?? r.name ?? f.title,
+      type:         r.media_type === "tv" ? "series" : "movie",
+      overview:     r.overview ?? f.overview,
+      poster_url:   r.poster_path ? `https://image.tmdb.org/t/p/w500${r.poster_path}` : f.poster_url,
+      backdrop_url: r.backdrop_path ? `https://image.tmdb.org/t/p/w1280${r.backdrop_path}` : f.backdrop_url,
+      rating:       r.vote_average ? String(r.vote_average.toFixed(1)) : f.rating,
+      year:         (r.release_date ?? r.first_air_date ?? "").slice(0, 4) || f.year,
+      tmdb_status:  "manual",
+    }));
+    setEditTmdbDetailLoading(true);
+    const details = await fetchTmdbDetails(r);
+    setEditForm(f => ({ ...f, ...details }));
+    setEditTmdbDetailLoading(false);
+    toast.success("Metadatos TMDB actualizados");
   }
 
   async function handleEdit() {
@@ -293,15 +454,19 @@ export default function VOD() {
     setEditSaving(true);
     try {
       const { error } = await ownerSupabase.from("vod_items").update({
-        title:      editForm.title.trim(),
-        type:       editForm.type,
-        server_id:  editForm.server_id || null,
-        file_path:  editForm.file_path.trim() || null,
-        stream_url: editForm.stream_url.trim() || null,
-        poster_url: editForm.poster_url || null,
-        overview:   editForm.overview || null,
-        rating:     editForm.rating ? parseFloat(editForm.rating) : null,
-        year:       editForm.year   ? parseInt(editForm.year, 10) : null,
+        title:        editForm.title.trim(),
+        type:         editForm.type,
+        server_id:    editForm.server_id || null,
+        file_path:    editForm.file_path.trim() || null,
+        stream_url:   editForm.stream_url.trim() || null,
+        poster_url:   editForm.poster_url || null,
+        backdrop_url: editForm.backdrop_url || null,
+        overview:     editForm.overview || null,
+        rating:       editForm.rating ? parseFloat(editForm.rating) : null,
+        year:         editForm.year   ? parseInt(editForm.year, 10) : null,
+        genres:       editForm.genres,
+        cast_list:    editForm.cast_list,
+        trailer_url:  editForm.trailer_url || null,
       }).eq("id", editItem.id);
       if (error) throw error;
       toast.success("Cambios guardados");
@@ -364,38 +529,168 @@ export default function VOD() {
     [bulkForm.file_list]);
 
   async function handleBulkImport() {
-    if (!bulkForm.server_id)      { toast.error("Selecciona un servidor"); return; }
-    if (!bulkFileNames.length)    { toast.error("La lista de archivos está vacía"); return; }
+    if (!bulkForm.server_id)   { toast.error("Selecciona un servidor"); return; }
+    if (!bulkFileNames.length) { toast.error("La lista de archivos está vacía"); return; }
+
+    const apiKey = config.branding?.tmdb_api_key;
+    const doAutoTmdb = bulkAutoTmdb && !!apiKey;
 
     setBulkImporting(true);
-    let success = 0, failed = 0;
+    setBulkProgress({ done: 0, total: bulkFileNames.length, matched: 0, pending: 0 });
+
+    let success = 0, failed = 0, matched = 0, pending = 0;
     const base = bulkForm.base_path.replace(/\/$/, "");
 
-    for (const fileName of bulkFileNames) {
+    for (let idx = 0; idx < bulkFileNames.length; idx++) {
+      const fileName = bulkFileNames[idx];
       const filePath = base ? `${base}/${fileName}` : fileName;
-      // Derive a human title from the filename (strip extension, replace separators)
-      const title = fileName.replace(/\.[^.]+$/, "").replace(/[._\-]+/g, " ").trim();
+      const cleanedTitle = cleanFilename(fileName);
+      const extractedYear = extractYear(fileName);
 
-      const { error } = await ownerSupabase.from("vod_items").insert({
-        server_id:  bulkForm.server_id,
-        type:       bulkForm.type,
-        title,
-        file_path:  filePath,
-        genres:     [],
-        cast_list:  [],
-        active:     true,
-      });
+      let insertPayload: Record<string, unknown> = {
+        server_id:   bulkForm.server_id,
+        type:        bulkForm.type,
+        title:       cleanedTitle || fileName,
+        file_path:   filePath,
+        genres:      [],
+        cast_list:   [],
+        active:      true,
+        tmdb_status: "pending_review",
+      };
+
+      // ── TMDB auto-match ──
+      if (doAutoTmdb && cleanedTitle) {
+        try {
+          const res = await fetch(
+            `https://api.themoviedb.org/3/search/multi?query=${encodeURIComponent(cleanedTitle)}&api_key=${apiKey}&language=es-ES`
+          );
+          const data = await res.json();
+          const results: TmdbResult[] = (data.results ?? [])
+            .filter((r: TmdbResult) => r.media_type === "movie" || r.media_type === "tv");
+
+          if (results.length > 0) {
+            const top = results[0];
+            const topTitle = top.title ?? top.name ?? "";
+            const similarity = titleSimilarity(cleanedTitle, topTitle);
+            const topYear = (top.release_date ?? top.first_air_date ?? "").slice(0, 4);
+            const yearMatch = extractedYear && topYear === extractedYear;
+            const confident = similarity >= 0.65 || (similarity >= 0.45 && yearMatch);
+
+            if (confident) {
+              // Fetch full details
+              const details = await fetchTmdbDetails(top);
+              matched++;
+              insertPayload = {
+                ...insertPayload,
+                title:        topTitle || cleanedTitle,
+                type:         top.media_type === "tv" ? "series" : bulkForm.type,
+                overview:     top.overview || null,
+                poster_url:   top.poster_path ? `https://image.tmdb.org/t/p/w500${top.poster_path}` : null,
+                backdrop_url: top.backdrop_path ? `https://image.tmdb.org/t/p/w1280${top.backdrop_path}` : null,
+                rating:       top.vote_average || null,
+                year:         parseInt(topYear) || null,
+                tmdb_id:      top.id,
+                tmdb_status:  "matched",
+                ...details,
+              };
+            } else {
+              pending++;
+            }
+          } else {
+            pending++;
+          }
+        } catch {
+          pending++;
+        }
+      }
+
+      const { error } = await ownerSupabase.from("vod_items").insert(insertPayload);
       if (error) failed++; else success++;
+
+      setBulkProgress({ done: idx + 1, total: bulkFileNames.length, matched, pending });
+
+      // Throttle to avoid TMDB rate limits (40 req/10s)
+      if (doAutoTmdb && idx < bulkFileNames.length - 1) {
+        await new Promise(r => setTimeout(r, 260));
+      }
     }
 
     setBulkImporting(false);
+    setBulkProgress(null);
+
     if (success > 0) {
-      toast.success(`${success} archivo${success !== 1 ? "s" : ""} importado${success !== 1 ? "s" : ""}`);
+      const parts = [`${success} importado${success !== 1 ? "s" : ""}`];
+      if (matched > 0) parts.push(`${matched} con TMDB`);
+      if (pending > 0) parts.push(`${pending} pendientes de revisión`);
+      toast.success(parts.join(" · "));
+      if (pending > 0) setTabType("pending");
       setBulkOpen(false);
       setBulkForm(EMPTY_BULK);
       loadAll();
     }
     if (failed > 0) toast.error(`${failed} archivo${failed !== 1 ? "s" : ""} no pudo importarse`);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  //  Pending review — manual TMDB match
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  function openReview(item: VodItem) {
+    setReviewTarget(item);
+    setReviewTmdbQuery(item.title);
+    setReviewTmdbResults([]);
+  }
+
+  async function searchReviewTmdb() {
+    const apiKey = config.branding?.tmdb_api_key;
+    if (!apiKey) { toast.error("Configura tu TMDB API Key en Configuración"); return; }
+    if (!reviewTmdbQuery.trim()) return;
+    setReviewTmdbLoading(true);
+    try {
+      const res = await fetch(
+        `https://api.themoviedb.org/3/search/multi?query=${encodeURIComponent(reviewTmdbQuery)}&api_key=${apiKey}&language=es-ES`
+      );
+      const data = await res.json();
+      setReviewTmdbResults(
+        (data.results ?? []).filter((r: TmdbResult) => r.media_type === "movie" || r.media_type === "tv")
+      );
+    } catch { toast.error("Error buscando en TMDB"); }
+    finally { setReviewTmdbLoading(false); }
+  }
+
+  async function applyReviewMatch(r: TmdbResult) {
+    if (!reviewTarget) return;
+    setReviewSaving(true);
+    try {
+      const details = await fetchTmdbDetails(r);
+      const { error } = await ownerSupabase.from("vod_items").update({
+        title:        r.title ?? r.name ?? reviewTarget.title,
+        type:         r.media_type === "tv" ? "series" : "movie",
+        overview:     r.overview || null,
+        poster_url:   r.poster_path ? `https://image.tmdb.org/t/p/w500${r.poster_path}` : null,
+        backdrop_url: r.backdrop_path ? `https://image.tmdb.org/t/p/w1280${r.backdrop_path}` : null,
+        rating:       r.vote_average || null,
+        year:         parseInt((r.release_date ?? r.first_air_date ?? "").slice(0, 4)) || null,
+        tmdb_id:      r.id,
+        tmdb_status:  "manual",
+        ...details,
+      }).eq("id", reviewTarget.id);
+      if (error) throw error;
+      toast.success(`"${r.title ?? r.name}" vinculado correctamente`);
+      setReviewTarget(null);
+      setReviewTmdbResults([]);
+      loadAll();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error actualizando");
+    } finally {
+      setReviewSaving(false);
+    }
+  }
+
+  async function markNoMetadata(item: VodItem) {
+    await ownerSupabase.from("vod_items").update({ tmdb_status: "no_metadata" } as any).eq("id", item.id);
+    toast.success("Marcado como sin metadata");
+    loadAll();
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -448,9 +743,15 @@ export default function VOD() {
       {/* ── Tabs (type filter) ── */}
       <Tabs value={tabType} onValueChange={v => setTabType(v as typeof tabType)}>
         <TabsList className="h-8">
-          <TabsTrigger value="all"    className="text-xs px-3">Todos ({items.length})</TabsTrigger>
-          <TabsTrigger value="movie"  className="text-xs px-3">Películas ({movieCount})</TabsTrigger>
-          <TabsTrigger value="series" className="text-xs px-3">Series ({seriesCount})</TabsTrigger>
+          <TabsTrigger value="all"     className="text-xs px-3">Todos ({items.length - pendingItems.length})</TabsTrigger>
+          <TabsTrigger value="movie"   className="text-xs px-3">Películas ({movieCount})</TabsTrigger>
+          <TabsTrigger value="series"  className="text-xs px-3">Series ({seriesCount})</TabsTrigger>
+          {pendingItems.length > 0 && (
+            <TabsTrigger value="pending" className="text-xs px-3 gap-1.5">
+              <AlertTriangle className="size-3 text-amber-500" />
+              Revisión ({pendingItems.length})
+            </TabsTrigger>
+          )}
         </TabsList>
       </Tabs>
 
@@ -490,10 +791,90 @@ export default function VOD() {
         )}
       </div>
 
+      {/* ── Pending review list ── */}
+      {!loading && tabType === "pending" && (
+        <div className="space-y-2">
+          <p className="text-xs text-amber-600 flex items-center gap-1.5 font-medium">
+            <AlertTriangle className="size-3.5" />
+            {pendingItems.length} contenido{pendingItems.length !== 1 ? "s" : ""} sin identificar — vincula cada uno con TMDB o márcalos como "Sin metadata"
+          </p>
+          {pendingItems.map(item => (
+            <div key={item.id} className="rounded-xl border border-amber-200 bg-amber-50/40 p-3 flex items-center gap-3">
+              {/* Placeholder poster */}
+              <div className="size-12 rounded bg-amber-100 flex items-center justify-center shrink-0">
+                {item.type === "series" ? <Tv className="size-5 text-amber-400" /> : <Film className="size-5 text-amber-400" />}
+              </div>
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground truncate">{item.title}</p>
+                <p className="text-xs text-muted-foreground font-mono truncate">{item.file_path ?? "—"}</p>
+              </div>
+              {/* Actions */}
+              {reviewTarget?.id === item.id ? (
+                /* Inline search panel */
+                <div className="flex-1 space-y-2 min-w-0">
+                  <div className="flex gap-1.5">
+                    <Input
+                      value={reviewTmdbQuery}
+                      onChange={e => setReviewTmdbQuery(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && searchReviewTmdb()}
+                      placeholder="Buscar en TMDB..."
+                      className="h-7 text-xs flex-1"
+                    />
+                    <Button variant="outline" size="icon" className="size-7 shrink-0"
+                      onClick={searchReviewTmdb} disabled={reviewTmdbLoading}>
+                      {reviewTmdbLoading ? <Loader2 className="size-3 animate-spin" /> : <Search className="size-3" />}
+                    </Button>
+                    <Button variant="ghost" size="icon" className="size-7 shrink-0"
+                      onClick={() => { setReviewTarget(null); setReviewTmdbResults([]); }}>
+                      <X className="size-3" />
+                    </Button>
+                  </div>
+                  {reviewTmdbResults.length > 0 && (
+                    <div className="rounded-lg border border-border bg-background divide-y max-h-40 overflow-y-auto text-xs">
+                      {reviewTmdbResults.map(r => (
+                        <button key={r.id} onClick={() => applyReviewMatch(r)} disabled={reviewSaving}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-muted text-left transition-colors">
+                          {r.poster_path
+                            ? <img src={`https://image.tmdb.org/t/p/w92${r.poster_path}`} className="h-8 w-6 rounded object-cover shrink-0" alt="" />
+                            : <div className="h-8 w-6 rounded bg-muted flex items-center justify-center shrink-0"><Film className="size-3 text-muted-foreground/40" /></div>
+                          }
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">{r.title ?? r.name}</p>
+                            <p className="text-muted-foreground">{r.media_type === "tv" ? "Serie" : "Película"} · {(r.release_date ?? r.first_air_date ?? "").slice(0, 4)}</p>
+                          </div>
+                          {r.vote_average > 0 && (
+                            <span className="ml-auto text-yellow-600 flex items-center gap-0.5 shrink-0">
+                              <Star className="size-2.5 fill-yellow-400 text-yellow-400" />{r.vote_average.toFixed(1)}
+                            </span>
+                          )}
+                          {reviewSaving && <Loader2 className="size-3 animate-spin shrink-0" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1 border-amber-300 hover:bg-amber-50"
+                    onClick={() => openReview(item)}>
+                    <Search className="size-3" /> Vincular TMDB
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground"
+                    onClick={() => markNoMetadata(item)}>
+                    Sin metadata
+                  </Button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* ── Grid ── */}
       {loading ? (
         <GridSkeletons />
-      ) : filtered.length === 0 ? (
+      ) : tabType !== "pending" && filtered.length === 0 ? (
         <div className="rounded-xl border border-border bg-card p-12 text-center">
           <Film className="size-8 text-muted-foreground/40 mx-auto mb-2" />
           <p className="text-sm text-muted-foreground">
@@ -505,7 +886,7 @@ export default function VOD() {
             </Button>
           )}
         </div>
-      ) : (
+      ) : tabType !== "pending" && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {filtered.map(item => (
             <div
@@ -699,17 +1080,43 @@ export default function VOD() {
           {/* ── Step 2: Details ── */}
           {addStep === 2 && (
             <div className="space-y-3 mt-2">
-              {/* Poster preview if TMDB selected */}
+              {/* Poster preview + TMDB metadata */}
               {addForm.poster_url && (
-                <div className="flex items-center gap-3 rounded-lg bg-muted/50 p-2.5">
-                  <img src={addForm.poster_url} alt="" className="h-16 w-11 rounded object-cover shrink-0" />
-                  <div className="min-w-0">
+                <div className="flex items-start gap-3 rounded-lg bg-muted/50 p-2.5">
+                  <img src={addForm.poster_url} alt="" className="h-20 w-14 rounded object-cover shrink-0" />
+                  <div className="min-w-0 space-y-1">
                     <p className="text-xs font-medium text-foreground truncate">{addForm.title}</p>
                     <p className="text-[11px] text-muted-foreground">{addForm.year} · {addForm.type === "series" ? "Serie" : "Película"}</p>
                     {addForm.rating && (
-                      <p className="text-[11px] text-yellow-600 flex items-center gap-0.5 mt-0.5">
+                      <p className="text-[11px] text-yellow-600 flex items-center gap-0.5">
                         <Star className="size-2.5 fill-yellow-400 text-yellow-400" /> {addForm.rating}
                       </p>
+                    )}
+                    {tmdbDetailLoading && (
+                      <p className="text-[11px] text-violet-600 flex items-center gap-1">
+                        <Loader2 className="size-3 animate-spin" /> Cargando metadata...
+                      </p>
+                    )}
+                    {/* Genres */}
+                    {addForm.genres.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {addForm.genres.map(g => (
+                          <span key={g} className="text-[10px] bg-blue-100 text-blue-700 rounded-full px-1.5 py-0.5">{g}</span>
+                        ))}
+                      </div>
+                    )}
+                    {/* Cast */}
+                    {addForm.cast_list.length > 0 && (
+                      <p className="text-[11px] text-muted-foreground truncate">
+                        🎬 {addForm.cast_list.slice(0, 4).join(", ")}{addForm.cast_list.length > 4 ? "..." : ""}
+                      </p>
+                    )}
+                    {/* Trailer */}
+                    {addForm.trailer_url && (
+                      <a href={addForm.trailer_url} target="_blank" rel="noreferrer"
+                        className="text-[11px] text-violet-600 hover:underline flex items-center gap-0.5">
+                        ▶ Ver trailer
+                      </a>
                     )}
                   </div>
                 </div>
@@ -816,9 +1223,93 @@ export default function VOD() {
             <DialogTitle className="text-base">Editar contenido</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 mt-1">
+            {/* Poster + metadata preview */}
             {editForm.poster_url && (
-              <img src={editForm.poster_url} alt="" className="h-20 rounded object-cover" />
+              <div className="flex items-start gap-3 rounded-lg bg-muted/50 p-2.5">
+                <img src={editForm.poster_url} alt="" className="h-20 w-14 rounded object-cover shrink-0" />
+                <div className="min-w-0 space-y-1 flex-1">
+                  <p className="text-xs font-semibold text-foreground truncate">{editForm.title}</p>
+                  <p className="text-[11px] text-muted-foreground">{editForm.year}</p>
+                  {editTmdbDetailLoading && (
+                    <p className="text-[11px] text-violet-600 flex items-center gap-1">
+                      <Loader2 className="size-3 animate-spin" /> Actualizando metadata...
+                    </p>
+                  )}
+                  {editForm.genres.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {editForm.genres.map(g => (
+                        <span key={g} className="text-[10px] bg-blue-100 text-blue-700 rounded-full px-1.5 py-0.5">{g}</span>
+                      ))}
+                    </div>
+                  )}
+                  {editForm.cast_list.length > 0 && (
+                    <p className="text-[11px] text-muted-foreground truncate">
+                      🎬 {editForm.cast_list.slice(0, 4).join(", ")}{editForm.cast_list.length > 4 ? "..." : ""}
+                    </p>
+                  )}
+                  {editForm.trailer_url && (
+                    <a href={editForm.trailer_url} target="_blank" rel="noreferrer"
+                      className="text-[11px] text-violet-600 hover:underline">▶ Ver trailer</a>
+                  )}
+                </div>
+              </div>
             )}
+
+            {/* TMDB re-linking */}
+            <div className="rounded-lg border border-dashed border-violet-200 bg-violet-50/50 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-violet-700">Re-vincular con TMDB</p>
+                <button
+                  type="button"
+                  onClick={() => setEditTmdbOpen(v => !v)}
+                  className="text-xs text-violet-600 hover:text-violet-800"
+                >
+                  {editTmdbOpen ? "Cerrar" : "Buscar"}
+                </button>
+              </div>
+              {editTmdbOpen && (
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Buscar en TMDB..."
+                      value={editTmdbQuery}
+                      onChange={e => setEditTmdbQuery(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && searchEditTmdb()}
+                      className="flex-1 h-7 text-xs"
+                    />
+                    <Button variant="outline" size="icon" className="size-7 shrink-0"
+                      onClick={searchEditTmdb} disabled={editTmdbLoading}>
+                      {editTmdbLoading ? <Loader2 className="size-3 animate-spin" /> : <Search className="size-3" />}
+                    </Button>
+                  </div>
+                  {editTmdbResults.length > 0 && (
+                    <div className="rounded-lg border border-border divide-y max-h-44 overflow-y-auto bg-background">
+                      {editTmdbResults.map(r => (
+                        <button key={r.id} onClick={() => selectEditTmdb(r)}
+                          className="w-full flex items-center gap-2 px-2.5 py-2 hover:bg-muted text-left transition-colors">
+                          {r.poster_path
+                            ? <img src={`https://image.tmdb.org/t/p/w92${r.poster_path}`} className="h-10 w-7 rounded object-cover shrink-0" alt="" />
+                            : <div className="h-10 w-7 rounded bg-muted flex items-center justify-center shrink-0"><Film className="size-3 text-muted-foreground/40" /></div>
+                          }
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium truncate">{r.title ?? r.name}</p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {r.media_type === "tv" ? "Serie" : "Película"} · {(r.release_date ?? r.first_air_date ?? "").slice(0, 4) || "—"}
+                            </p>
+                          </div>
+                          {r.vote_average > 0 && (
+                            <span className="ml-auto text-[10px] text-yellow-600 shrink-0 flex items-center gap-0.5">
+                              <Star className="size-2.5 fill-yellow-400 text-yellow-400" />{r.vote_average.toFixed(1)}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2 space-y-1.5">
                 <Label className="text-xs">Título *</Label>
@@ -1014,10 +1505,51 @@ export default function VOD() {
                 )}
               </div>
             )}
+
+            {/* TMDB auto-match toggle */}
+            <div className="flex items-start gap-2.5 rounded-lg border border-violet-200 bg-violet-50/50 p-2.5">
+              <input
+                id="bulk-auto-tmdb"
+                type="checkbox"
+                checked={bulkAutoTmdb}
+                onChange={e => setBulkAutoTmdb(e.target.checked)}
+                className="mt-0.5 accent-violet-600"
+              />
+              <div>
+                <label htmlFor="bulk-auto-tmdb" className="text-xs font-medium text-violet-800 cursor-pointer">
+                  Auto-buscar en TMDB
+                </label>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Limpia el nombre del archivo y busca en TMDB. Match con confianza ≥65% → importado con metadata. Resto → cola de revisión.
+                  {!config.branding?.tmdb_api_key && (
+                    <span className="text-amber-600"> Requiere TMDB API Key en Configuración.</span>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            {bulkProgress && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Procesando {bulkProgress.done} / {bulkProgress.total}…</span>
+                  <span className="space-x-2">
+                    <span className="text-green-600">✓ {bulkProgress.matched}</span>
+                    <span className="text-amber-600">⏳ {bulkProgress.pending}</span>
+                  </span>
+                </div>
+                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-violet-500 transition-all"
+                    style={{ width: `${Math.round((bulkProgress.done / bulkProgress.total) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           <DialogFooter className="mt-4">
-            <Button variant="ghost" size="sm" onClick={() => setBulkOpen(false)}>Cancelar</Button>
+            <Button variant="ghost" size="sm" onClick={() => setBulkOpen(false)} disabled={bulkImporting}>Cancelar</Button>
             <Button
               size="sm"
               onClick={handleBulkImport}
