@@ -27,6 +27,27 @@ import { format, differenceInDays, isPast } from "date-fns";
 import { es } from "date-fns/locale";
 import type { Line, Package, Reseller, Server, LineStatus } from "@/types/owner-panel";
 
+// ── Subtree utility ───────────────────────────────────────────────────────────
+function getSubtree<T extends { id: string; parent_id: string | null }>(
+  all: T[],
+  rootId: string
+): T[] {
+  const result: T[] = [];
+  const queue: string[] = [rootId];
+  const seen = new Set<string>();
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (seen.has(current)) continue;
+    seen.add(current);
+    const node = all.find((r) => r.id === current);
+    if (node) {
+      result.push(node);
+      all.filter((r) => r.parent_id === current).forEach((c) => queue.push(c.id));
+    }
+  }
+  return result;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function randomStr(len: number) {
   return Math.random().toString(36).slice(2, 2 + len);
@@ -115,9 +136,28 @@ export default function Lines() {
       ownerSupabase.from("resellers").select("id, name, demos_this_month, demos_limit").order("name"),
       ownerSupabase.from("servers").select("*").eq("status", "active"),
     ]);
-    setLines((linesRes.data ?? []) as Line[]);
+
+    const allResellers = (resRes.data ?? []) as Reseller[];
+
+    // App-level subtree filter (safety net for DBs without updated RLS).
+    // Owners see all; resellers/subs see only their subtree.
+    const visibleResellers =
+      !me || me.role === "owner"
+        ? allResellers
+        : getSubtree(allResellers, me.id);
+
+    const visibleIds = new Set(visibleResellers.map((r) => r.id));
+
+    // Filter lines to those owned by visible resellers (or unassigned = owner's)
+    const allLines = (linesRes.data ?? []) as Line[];
+    const visibleLines =
+      !me || me.role === "owner"
+        ? allLines
+        : allLines.filter((l) => !l.reseller_id || visibleIds.has(l.reseller_id));
+
+    setLines(visibleLines);
     setPackages(pkgRes.data ?? []);
-    setResellers((resRes.data ?? []) as Reseller[]);
+    setResellers(visibleResellers);
     setServers(srvRes.data ?? []);
     setLoading(false);
   }
@@ -409,19 +449,34 @@ export default function Lines() {
               <thead className="bg-muted/40">
                 <tr className="text-left text-xs text-muted-foreground">
                   <th className="px-4 py-3 font-medium">Username</th>
-                  <th className="px-4 py-3 font-medium">Password</th>
+                  <th className="px-4 py-3 font-medium hidden sm:table-cell">Password</th>
                   <th className="px-4 py-3 font-medium">Paquete</th>
-                  <th className="px-4 py-3 font-medium">Reseller</th>
+                  <th className="px-4 py-3 font-medium hidden md:table-cell">Reseller</th>
                   <th className="px-4 py-3 font-medium">Estado</th>
-                  <th className="px-4 py-3 font-medium">Expira</th>
+                  <th className="px-4 py-3 font-medium hidden lg:table-cell">Expira</th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {filtered.map((line) => (
                   <tr key={line.id} className={rowClass(line)}>
-                    <td className="px-4 py-3 font-mono text-xs">{line.username}</td>
+                    {/* Username + inline M3U copy */}
                     <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono text-xs">{line.username}</span>
+                        <button
+                          onClick={() => copyText(getM3U(line), `m3u-${line.id}`)}
+                          title="Copiar URL M3U"
+                          className="shrink-0 text-muted-foreground hover:text-violet-600 transition-colors"
+                        >
+                          {copied === `m3u-${line.id}`
+                            ? <Check className="size-3.5 text-green-500" />
+                            : <Copy className="size-3.5" />}
+                        </button>
+                      </div>
+                    </td>
+                    {/* Password */}
+                    <td className="px-4 py-3 hidden sm:table-cell">
                       <div className="flex items-center gap-1.5">
                         <span className="font-mono text-xs">
                           {showPass[line.id] ? line.password : "••••••••"}
@@ -435,10 +490,24 @@ export default function Lines() {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground">{line.package?.name ?? "—"}</td>
-                    <td className="px-4 py-3 text-muted-foreground text-xs">{(line as any).reseller?.name ?? "—"}</td>
+                    <td className="px-4 py-3 text-muted-foreground text-xs hidden md:table-cell">{(line as any).reseller?.name ?? "—"}</td>
                     <td className="px-4 py-3"><StatusBadge status={line.status} /></td>
-                    <td className={`px-4 py-3 text-xs ${expiryClass(line)}`}>
-                      {format(new Date(line.expires_at), "d MMM yyyy", { locale: es })}
+                    {/* Expiry with days-left bar */}
+                    <td className="px-4 py-3 hidden lg:table-cell">
+                      <p className={`text-xs ${expiryClass(line)}`}>
+                        {format(new Date(line.expires_at), "d MMM yyyy", { locale: es })}
+                      </p>
+                      {line.status === "active" && (() => {
+                        const days = differenceInDays(new Date(line.expires_at), new Date());
+                        if (days < 0) return null;
+                        const pct = Math.min(100, Math.round((days / 30) * 100));
+                        const color = days <= 3 ? "bg-red-500" : days <= 7 ? "bg-orange-400" : "bg-green-500";
+                        return (
+                          <div className="mt-1 h-1 w-16 rounded-full bg-muted overflow-hidden">
+                            <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3">
                       <DropdownMenu>
