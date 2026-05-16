@@ -19,6 +19,7 @@ import {
   MessageSquare,
   Eye,
   ChevronRight,
+  FolderOpen,
 } from "lucide-react";
 
 const NAV_ALL = [
@@ -30,6 +31,7 @@ const NAV_ALL = [
 const NAV_OWNER_BASE = [
   { to: "/owner/packages", label: "Paquetes",     icon: Package,        flag: "custom_packages" as const },
   { to: "/owner/servers",  label: "Servidores",   icon: Server,         flag: null },
+  { to: "/owner/library",  label: "Biblioteca",   icon: FolderOpen,     flag: null },
   { to: "/owner/streams",  label: "Canales Live", icon: Radio,          flag: "streams" as const },
   { to: "/owner/vod",      label: "VOD",          icon: Film,           flag: "vod" as const },
   { to: "/owner/bouquets", label: "Bouquets",     icon: ListMusic,      flag: null },
