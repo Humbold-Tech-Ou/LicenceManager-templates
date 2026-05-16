@@ -62,12 +62,15 @@ export interface Server {
   created_at: string;
 }
 
+export type StreamType = "hls" | "rtmp" | "ts";
+
 export interface Stream {
   id: string;
   server_id: string | null;
   name: string;
   category: string | null;
   stream_url: string;
+  stream_type: StreamType;
   epg_id: string | null;
   logo_url: string | null;
   active: boolean;
@@ -112,6 +115,14 @@ export interface VodItem {
   created_at: string;
 }
 
+export interface PanelFeatures {
+  vod: boolean;
+  streams: boolean;
+  demos: boolean;
+  resellers: boolean;
+  custom_packages: boolean;
+}
+
 export interface PanelConfig {
   branding: {
     name: string;
@@ -121,6 +132,7 @@ export interface PanelConfig {
   };
   demo_policy: { global_monthly_limit: number };
   network_depth: { max_levels: number | null };
+  features: PanelFeatures;
 }
 
 export interface ActiveConnection {
