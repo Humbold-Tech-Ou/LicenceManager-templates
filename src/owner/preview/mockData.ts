@@ -41,11 +41,11 @@ export const mockResellers: Reseller[] = [
 ];
 
 export const mockPackages: Package[] = [
-  { id: "p-demo", name: "Demo 24h", duration_hours: 24,   credits_cost: 0, is_demo: true,  active: true, bouquet_id: null, output_formats: ["m3u8","ts"], created_at: iso(-120) },
-  { id: "p-1m",   name: "1 mes",    duration_hours: 720,  credits_cost: 1, is_demo: false, active: true, bouquet_id: null, output_formats: ["m3u8","ts"], created_at: iso(-120) },
-  { id: "p-3m",   name: "3 meses",  duration_hours: 2160, credits_cost: 3, is_demo: false, active: true, bouquet_id: null, output_formats: ["m3u8","ts","rtmp"], created_at: iso(-120) },
-  { id: "p-6m",   name: "6 meses",  duration_hours: 4320, credits_cost: 5, is_demo: false, active: true, bouquet_id: null, output_formats: ["m3u8","ts","rtmp"], created_at: iso(-120) },
-  { id: "p-12m",  name: "12 meses", duration_hours: 8760, credits_cost: 9, is_demo: false, active: true, bouquet_id: null, output_formats: ["m3u8","ts","rtmp"], created_at: iso(-120) },
+  { id: "p-demo", name: "Demo 24h", duration_hours: 24,   credits_cost: 0, max_connections: 1, is_demo: true,  active: true, bouquet_id: null, output_formats: ["m3u8","ts"], created_at: iso(-120) },
+  { id: "p-1m",   name: "1 mes",    duration_hours: 720,  credits_cost: 1, max_connections: 1, is_demo: false, active: true, bouquet_id: null, output_formats: ["m3u8","ts"], created_at: iso(-120) },
+  { id: "p-3m",   name: "3 meses",  duration_hours: 2160, credits_cost: 3, max_connections: 2, is_demo: false, active: true, bouquet_id: null, output_formats: ["m3u8","ts","rtmp"], created_at: iso(-120) },
+  { id: "p-6m",   name: "6 meses",  duration_hours: 4320, credits_cost: 5, max_connections: 2, is_demo: false, active: true, bouquet_id: null, output_formats: ["m3u8","ts","rtmp"], created_at: iso(-120) },
+  { id: "p-12m",  name: "12 meses", duration_hours: 8760, credits_cost: 9, max_connections: 3, is_demo: false, active: true, bouquet_id: null, output_formats: ["m3u8","ts","rtmp"], created_at: iso(-120) },
 ];
 
 export const mockStreams: Stream[] = [
