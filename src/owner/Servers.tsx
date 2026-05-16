@@ -41,11 +41,25 @@ import {
   Copy,
   Server as ServerIcon,
   KeyRound,
+  FolderSearch,
+  Film,
+  Tv,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { Server, ServerProtocol, ServerType, SshAuthMethod } from "@/types/owner-panel";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+const SUPABASE_FUNCTIONS_URL = "https://rrresinucnxfdaaqcqcp.supabase.co";
+const SUPABASE_ANON_KEY_PUB = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJycmVzaW51Y254ZmRhYXFjcWNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMzI5OTksImV4cCI6MjA5MTkwODk5OX0.PHQTe4-m5Nv16SXK64xLSybO-rh9_ZLiCiRO_KRam2I";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -118,6 +132,122 @@ export default function Servers() {
 
   const [deleteTarget, setDeleteTarget] = useState<Server | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+
+  // ── Scan library state ────────────────────────────────────────────────────────
+  const [scanTarget, setScanTarget] = useState<Server | null>(null);
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanPaths, setScanPaths] = useState("/home/Peliculas/");
+  const [scanSecret, setScanSecret] = useState("");
+  const [scanPassphrase, setScanPassphrase] = useState("");
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanResult, setScanResult] = useState<null | {
+    scanned_files: number;
+    movies: Array<{ title: string; year?: number; file_path: string }>;
+    series: Array<{ title: string; episodes: Array<{ season: number; episode: number; episode_title?: string; file_path: string }> }>;
+  }>(null);
+  const [importing, setImporting] = useState(false);
+
+  async function openScan(srv: Server) {
+    if (srv.protocol !== "ssh") {
+      toast.error("El escaneo automático solo está disponible para servidores SSH");
+      return;
+    }
+    setScanTarget(srv);
+    setScanResult(null);
+    setScanSecret("");
+    setScanPassphrase("");
+    setScanPaths("/home/Peliculas/");
+    setScanOpen(true);
+    try {
+      const { data, error } = await ownerSupabase.rpc("get_server_ssh_secret", { _server_id: srv.id });
+      if (!error && typeof data === "string" && data.length > 0) setScanSecret(data);
+    } catch { /* user can paste manually */ }
+  }
+
+  async function runScan() {
+    if (!scanTarget) return;
+    const paths = scanPaths.split(",").map((p) => p.trim()).filter(Boolean);
+    if (!paths.length) { toast.error("Indica al menos una ruta"); return; }
+    if (!scanTarget.ssh_username) { toast.error("El servidor no tiene usuario SSH"); return; }
+    if (!scanSecret) { toast.error(scanTarget.ssh_auth_method === "key" ? "Pega la clave privada" : "Pega la contraseña SSH"); return; }
+    setScanLoading(true);
+    setScanResult(null);
+    try {
+      const res = await fetch(`${SUPABASE_FUNCTIONS_URL}/functions/v1/scan-server-library`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: SUPABASE_ANON_KEY_PUB,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY_PUB}`,
+        },
+        body: JSON.stringify({
+          host: scanTarget.ip,
+          port: scanTarget.port || 22,
+          username: scanTarget.ssh_username,
+          paths,
+          ...(scanTarget.ssh_auth_method === "key"
+            ? { private_key: scanSecret, passphrase: scanPassphrase || undefined }
+            : { password: scanSecret }),
+        }),
+        signal: AbortSignal.timeout(60000),
+      });
+      const data = await res.json();
+      if (!data?.ok) {
+        toast.error("Escaneo falló", { description: data?.error ?? "Error desconocido" });
+        return;
+      }
+      setScanResult({ scanned_files: data.scanned_files, movies: data.movies, series: data.series });
+      toast.success(`Se encontraron ${data.movies.length} películas y ${data.series.length} series`);
+    } catch (err) {
+      toast.error("No se pudo escanear", { description: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setScanLoading(false);
+    }
+  }
+
+  async function importScan() {
+    if (!scanTarget || !scanResult) return;
+    setImporting(true);
+    try {
+      const rows: Array<Record<string, unknown>> = [];
+      for (const m of scanResult.movies) {
+        rows.push({
+          server_id: scanTarget.id,
+          type: "movie",
+          title: m.title,
+          year: m.year ?? null,
+          file_path: m.file_path,
+          active: true,
+        });
+      }
+      for (const s of scanResult.series) {
+        const seasonsMap: Record<string, Array<{ episode: number; title?: string; file_path: string }>> = {};
+        for (const ep of s.episodes) {
+          const key = String(ep.season);
+          if (!seasonsMap[key]) seasonsMap[key] = [];
+          seasonsMap[key].push({ episode: ep.episode, title: ep.episode_title, file_path: ep.file_path });
+        }
+        rows.push({
+          server_id: scanTarget.id,
+          type: "series",
+          title: s.title,
+          file_path: s.episodes[0]?.file_path ?? null,
+          seasons: seasonsMap,
+          active: true,
+        });
+      }
+      if (!rows.length) { toast.info("Nada que importar"); return; }
+      const { error } = await ownerSupabase.from("vod_items").insert(rows);
+      if (error) {
+        toast.error("Error importando", { description: error.message });
+        return;
+      }
+      toast.success(`Importados ${rows.length} ítems a la Biblioteca`);
+      setScanOpen(false);
+    } finally {
+      setImporting(false);
+    }
+  }
 
   useEffect(() => { load(); }, []);
 
@@ -438,6 +568,11 @@ export default function Servers() {
                         <DropdownMenuItem onClick={() => copyToClipboard(serverUrl(srv))}>
                           <Copy className="size-3.5 mr-2" /> Copiar URL
                         </DropdownMenuItem>
+                        {srv.protocol === "ssh" && (
+                          <DropdownMenuItem onClick={() => openScan(srv)}>
+                            <FolderSearch className="size-3.5 mr-2" /> Escanear biblioteca
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => toggleStatus(srv)}>
                           {srv.status === "active" ? "Desactivar" : "Activar"}
@@ -699,6 +834,149 @@ export default function Servers() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── Scan library Dialog ── */}
+      <Dialog open={scanOpen} onOpenChange={(o) => { if (!scanLoading && !importing) setScanOpen(o); }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FolderSearch className="size-5 text-violet-600" />
+              Escanear biblioteca de {scanTarget?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Se conectará por SSH al servidor, listará los archivos de video en las rutas indicadas,
+              detectará películas vs episodios de series por el nombre, y los importará a tu Biblioteca.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Rutas a escanear (separadas por coma)</Label>
+              <Input
+                value={scanPaths}
+                onChange={(e) => setScanPaths(e.target.value)}
+                placeholder="/home/Peliculas/, /home/Series/"
+                disabled={scanLoading || importing}
+              />
+              <p className="text-xs text-muted-foreground">
+                Formatos detectados: mkv, mp4, avi, mov, m4v, ts, wmv. Series detectadas por patrón <code>S01E01</code>.
+              </p>
+            </div>
+
+            {scanTarget?.ssh_auth_method === "key" ? (
+              <>
+                <div className="space-y-1.5">
+                  <Label>Clave privada SSH</Label>
+                  <Textarea
+                    value={scanSecret}
+                    onChange={(e) => setScanSecret(e.target.value)}
+                    placeholder="-----BEGIN OPENSSH PRIVATE KEY-----..."
+                    rows={4}
+                    className="font-mono text-xs"
+                    disabled={scanLoading || importing}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Passphrase (opcional)</Label>
+                  <Input
+                    type="password"
+                    value={scanPassphrase}
+                    onChange={(e) => setScanPassphrase(e.target.value)}
+                    disabled={scanLoading || importing}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="space-y-1.5">
+                <Label>Contraseña SSH</Label>
+                <Input
+                  type="password"
+                  value={scanSecret}
+                  onChange={(e) => setScanSecret(e.target.value)}
+                  placeholder={scanSecret ? "•••••••• (cargada desde Vault)" : "Contraseña del usuario SSH"}
+                  disabled={scanLoading || importing}
+                />
+              </div>
+            )}
+
+            {scanResult && (
+              <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-3 space-y-3">
+                <div className="flex items-center gap-4 text-sm">
+                  <span className="text-muted-foreground">{scanResult.scanned_files} archivos</span>
+                  <span className="flex items-center gap-1 text-violet-700 font-medium">
+                    <Film className="size-4" /> {scanResult.movies.length} películas
+                  </span>
+                  <span className="flex items-center gap-1 text-emerald-700 font-medium">
+                    <Tv className="size-4" /> {scanResult.series.length} series
+                  </span>
+                </div>
+
+                {scanResult.movies.length > 0 && (
+                  <div>
+                    <div className="text-xs font-medium text-muted-foreground mb-1">Películas</div>
+                    <ul className="space-y-1 max-h-32 overflow-y-auto text-sm">
+                      {scanResult.movies.slice(0, 50).map((m) => (
+                        <li key={m.file_path} className="flex items-center gap-2">
+                          <Film className="size-3 text-muted-foreground shrink-0" />
+                          <span className="truncate">
+                            {m.title}{m.year ? ` (${m.year})` : ""}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {scanResult.series.length > 0 && (
+                  <div>
+                    <div className="text-xs font-medium text-muted-foreground mb-1">Series</div>
+                    <ul className="space-y-1 max-h-32 overflow-y-auto text-sm">
+                      {scanResult.series.slice(0, 50).map((s) => (
+                        <li key={s.title} className="flex items-center gap-2">
+                          <Tv className="size-3 text-muted-foreground shrink-0" />
+                          <span className="truncate">{s.title}</span>
+                          <span className="text-xs text-muted-foreground">
+                            ({s.episodes.length} ep.)
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setScanOpen(false)} disabled={scanLoading || importing}>
+              Cancelar
+            </Button>
+            {!scanResult ? (
+              <Button
+                onClick={runScan}
+                disabled={scanLoading}
+                className="bg-violet-600 hover:bg-violet-700 gap-2"
+              >
+                {scanLoading && <Loader2 className="size-4 animate-spin" />}
+                {scanLoading ? "Escaneando..." : "Escanear"}
+              </Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => setScanResult(null)} disabled={importing}>
+                  Volver a escanear
+                </Button>
+                <Button
+                  onClick={importScan}
+                  disabled={importing || (scanResult.movies.length === 0 && scanResult.series.length === 0)}
+                  className="bg-violet-600 hover:bg-violet-700 gap-2"
+                >
+                  {importing && <Loader2 className="size-4 animate-spin" />}
+                  Importar a Biblioteca
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
