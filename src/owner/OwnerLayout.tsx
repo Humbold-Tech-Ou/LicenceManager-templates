@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useOwnerAuth, useOwnerConfig } from "@/hooks/useOwnerPanel";
 import { Button } from "@/components/ui/button";
-import { useEffect } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   LayoutDashboard,
   Users,
@@ -11,8 +11,12 @@ import {
   Film,
   Settings,
   LogOut,
-  ChevronRight,
   Radio,
+  Menu,
+  X,
+  ListMusic,
+  CalendarDays,
+  MessageSquare,
 } from "lucide-react";
 
 const NAV_ALL = [
@@ -22,11 +26,14 @@ const NAV_ALL = [
 ];
 
 const NAV_OWNER_BASE = [
-  { to: "/owner/packages", label: "Paquetes",     icon: Package, flag: "custom_packages" as const },
-  { to: "/owner/servers",  label: "Servidores",   icon: Server,  flag: null },
-  { to: "/owner/streams",  label: "Canales Live", icon: Radio,   flag: "streams" as const },
-  { to: "/owner/vod",      label: "VOD",          icon: Film,    flag: "vod" as const },
-  { to: "/owner/settings", label: "Configuración",icon: Settings, flag: null },
+  { to: "/owner/packages", label: "Paquetes",     icon: Package,        flag: "custom_packages" as const },
+  { to: "/owner/servers",  label: "Servidores",   icon: Server,         flag: null },
+  { to: "/owner/streams",  label: "Canales Live", icon: Radio,          flag: "streams" as const },
+  { to: "/owner/vod",      label: "VOD",          icon: Film,           flag: "vod" as const },
+  { to: "/owner/bouquets", label: "Bouquets",     icon: ListMusic,      flag: null },
+  { to: "/owner/epg",      label: "EPG",          icon: CalendarDays,   flag: "streams" as const },
+  { to: "/owner/tickets",  label: "Tickets",      icon: MessageSquare,  flag: null },
+  { to: "/owner/settings", label: "Configuración",icon: Settings,       flag: null },
 ];
 
 function SidebarLink({
@@ -34,15 +41,21 @@ function SidebarLink({
   label,
   icon: Icon,
   primaryColor,
+  collapsed,
+  onNavigate,
 }: {
   to: string;
   label: string;
   icon: React.ElementType;
   primaryColor: string;
+  collapsed: boolean;
+  onNavigate?: () => void;
 }) {
   return (
     <NavLink
       to={to}
+      onClick={onNavigate}
+      title={collapsed ? label : undefined}
       style={({ isActive }) => isActive
         ? { backgroundColor: `rgba(${hexToRgb(primaryColor)}, 0.08)`, color: primaryColor }
         : undefined
@@ -50,11 +63,17 @@ function SidebarLink({
       className={({ isActive }) =>
         `flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors font-${isActive ? "medium" : "normal"} ${
           isActive ? "" : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-        }`
+        } ${collapsed ? "justify-center" : ""}`
       }
     >
       <Icon className="size-4 shrink-0" />
-      {label}
+      <span
+        className={`overflow-hidden whitespace-nowrap transition-all duration-200 ${
+          collapsed ? "w-0 opacity-0" : "w-auto opacity-100"
+        }`}
+      >
+        {label}
+      </span>
     </NavLink>
   );
 }
@@ -106,12 +125,59 @@ function BrandingApplier({ color }: { color: string }) {
   return null;
 }
 
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia("(max-width: 767px)").matches : false
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  return isMobile;
+}
+
 export default function OwnerLayout() {
   const { reseller, signOut } = useOwnerAuth();
   const config = useOwnerConfig();
   const navigate = useNavigate();
   const primaryColor = config.branding?.primary_color || "#7C3AED";
   const features = config.features;
+  const isMobile = useIsMobile();
+
+  // Collapsed state (desktop only, persisted)
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem("owner-sidebar-collapsed") === "true";
+  });
+
+  // Mobile open state
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Persist collapsed state
+  useEffect(() => {
+    localStorage.setItem("owner-sidebar-collapsed", String(collapsed));
+  }, [collapsed]);
+
+  // Close mobile sidebar on resize to desktop
+  useEffect(() => {
+    if (!isMobile) setMobileOpen(false);
+  }, [isMobile]);
+
+  const toggleSidebar = useCallback(() => {
+    if (isMobile) {
+      setMobileOpen((v) => !v);
+    } else {
+      setCollapsed((v) => !v);
+    }
+  }, [isMobile]);
+
+  const closeMobileSidebar = useCallback(() => {
+    if (isMobile) setMobileOpen(false);
+  }, [isMobile]);
 
   // Filter nav items by feature flags
   const NAV_OWNER = NAV_OWNER_BASE.filter(
@@ -125,43 +191,103 @@ export default function OwnerLayout() {
 
   const isOwner = reseller?.role === "owner";
 
+  // Determine effective collapsed state (never collapsed when mobile overlay is open)
+  const effectiveCollapsed = isMobile ? false : collapsed;
+  const sidebarVisible = isMobile ? mobileOpen : true;
+
+  const sidebarWidth = effectiveCollapsed ? "w-14" : "w-[220px]";
+
   return (
     <div className="flex min-h-screen bg-background" data-owner-panel>
       <BrandingApplier color={primaryColor} />
+
+      {/* Mobile backdrop */}
+      {isMobile && mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 transition-opacity"
+          onClick={closeMobileSidebar}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside className="w-[220px] shrink-0 border-r border-zinc-200 bg-white flex flex-col">
-        {/* Brand — accent bar with primary color */}
-        <div className="px-4 py-4 border-b border-zinc-200" style={{ borderTopWidth: 3, borderTopColor: primaryColor }}>
-          <p className="text-sm font-semibold truncate" style={{ color: primaryColor }}>
-            {config.branding.name}
-          </p>
-          <p className="text-xs text-muted-foreground truncate mt-0.5">
-            {reseller?.name}
-          </p>
+      <aside
+        className={`
+          ${isMobile
+            ? `fixed inset-y-0 left-0 z-50 w-[220px] transform transition-transform duration-200 ${
+                mobileOpen ? "translate-x-0" : "-translate-x-full"
+              }`
+            : `${sidebarWidth} shrink-0 transition-all duration-200`
+          }
+          border-r border-zinc-200 bg-white flex flex-col
+        `}
+      >
+        {/* Brand — accent bar with primary color + toggle */}
+        <div
+          className="px-3 py-3 border-b border-zinc-200 flex items-center gap-2"
+          style={{ borderTopWidth: 3, borderTopColor: primaryColor }}
+        >
+          <button
+            onClick={toggleSidebar}
+            className="p-1.5 rounded-md hover:bg-zinc-100 text-zinc-600 hover:text-zinc-900 transition-colors shrink-0"
+            aria-label={effectiveCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {isMobile && mobileOpen ? (
+              <X className="size-4" />
+            ) : (
+              <Menu className="size-4" />
+            )}
+          </button>
+          {!effectiveCollapsed && (
+            <div className="overflow-hidden">
+              <p className="text-sm font-semibold truncate" style={{ color: primaryColor }}>
+                {config.branding.name}
+              </p>
+              <p className="text-xs text-muted-foreground truncate mt-0.5">
+                {reseller?.name}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 p-3 space-y-0.5">
+        <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
           {NAV_ALL.map((item) => (
-            <SidebarLink key={item.to} {...item} primaryColor={primaryColor} />
+            <SidebarLink
+              key={item.to}
+              {...item}
+              primaryColor={primaryColor}
+              collapsed={effectiveCollapsed}
+              onNavigate={closeMobileSidebar}
+            />
           ))}
 
           {isOwner && (
             <>
-              <div className="pt-3 pb-1 px-3">
-                <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">
-                  Administración
-                </p>
+              <div className={`pt-3 pb-1 ${effectiveCollapsed ? "px-0 flex justify-center" : "px-3"}`}>
+                {!effectiveCollapsed && (
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">
+                    Administración
+                  </p>
+                )}
+                {effectiveCollapsed && (
+                  <div className="w-4 border-t border-zinc-300" />
+                )}
               </div>
               {NAV_OWNER.map((item) => (
-                <SidebarLink key={item.to} {...item} primaryColor={primaryColor} />
+                <SidebarLink
+                  key={item.to}
+                  {...item}
+                  primaryColor={primaryColor}
+                  collapsed={effectiveCollapsed}
+                  onNavigate={closeMobileSidebar}
+                />
               ))}
             </>
           )}
         </nav>
 
         {/* Credits badge */}
-        {reseller && (
+        {reseller && !effectiveCollapsed && (
           <div className="px-4 py-3 border-t border-zinc-200">
             <p className="text-xs text-muted-foreground">Créditos disponibles</p>
             <p className="text-lg font-bold" style={{ color: primaryColor }}>
@@ -176,13 +302,25 @@ export default function OwnerLayout() {
             variant="ghost"
             size="sm"
             onClick={handleSignOut}
-            className="w-full justify-start gap-2 text-zinc-500 hover:text-zinc-900"
+            title={effectiveCollapsed ? "Salir" : undefined}
+            className={`w-full ${effectiveCollapsed ? "justify-center px-0" : "justify-start"} gap-2 text-zinc-500 hover:text-zinc-900`}
           >
-            <LogOut className="size-4" />
-            Salir
+            <LogOut className="size-4 shrink-0" />
+            {!effectiveCollapsed && <span>Salir</span>}
           </Button>
         </div>
       </aside>
+
+      {/* Mobile toggle button (visible when sidebar is hidden on mobile) */}
+      {isMobile && !mobileOpen && (
+        <button
+          onClick={toggleSidebar}
+          className="fixed top-3 left-3 z-30 p-2 rounded-md bg-white border border-zinc-200 shadow-sm text-zinc-600 hover:text-zinc-900 transition-colors"
+          aria-label="Open sidebar"
+        >
+          <Menu className="size-5" />
+        </button>
+      )}
 
       {/* Main */}
       <main className="flex-1 overflow-auto">
