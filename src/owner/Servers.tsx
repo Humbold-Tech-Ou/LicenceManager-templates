@@ -76,6 +76,8 @@ interface FormState {
   port: string;
   protocol: ServerProtocol;
   type: ServerType;
+  geo_countries: string;
+  isp_whitelist: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -84,6 +86,8 @@ const EMPTY_FORM: FormState = {
   port: "8080",
   protocol: "http",
   type: "hybrid",
+  geo_countries: "",
+  isp_whitelist: "",
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -129,6 +133,8 @@ export default function Servers() {
       port: String(srv.port),
       protocol: srv.protocol,
       type: srv.type,
+      geo_countries: (srv.geo_countries ?? []).join(", "),
+      isp_whitelist: (srv.isp_whitelist ?? []).join(", "),
     });
     setSheetOpen(true);
   }
@@ -157,6 +163,8 @@ export default function Servers() {
   async function handleSave() {
     setSaving(true);
     try {
+      const geoArr = form.geo_countries.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+      const ispArr = form.isp_whitelist.split(",").map((s) => s.trim()).filter(Boolean);
       const payload = {
         name: form.name,
         ip: form.ip,
@@ -164,6 +172,8 @@ export default function Servers() {
         protocol: form.protocol,
         type: form.type,
         status: editing?.status ?? "active",
+        geo_countries: geoArr.length > 0 ? geoArr : null,
+        isp_whitelist: ispArr.length > 0 ? ispArr : null,
       };
       if (editing) {
         const { error } = await ownerSupabase.from("servers").update(payload).eq("id", editing.id);
@@ -258,6 +268,7 @@ export default function Servers() {
                 <th className="px-4 py-3 font-medium">Nombre</th>
                 <th className="px-4 py-3 font-medium">URL</th>
                 <th className="px-4 py-3 font-medium">Tipo</th>
+                <th className="px-4 py-3 font-medium hidden lg:table-cell">GeoIP</th>
                 <th className="px-4 py-3 font-medium">Estado</th>
                 <th className="px-4 py-3" />
               </tr>
@@ -294,6 +305,18 @@ export default function Servers() {
                     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${TYPE_COLOR[srv.type]}`}>
                       {TYPE_LABEL[srv.type]}
                     </span>
+                  </td>
+
+                  {/* GeoIP */}
+                  <td className="px-4 py-3 hidden lg:table-cell">
+                    {srv.geo_countries && srv.geo_countries.length > 0 ? (
+                      <span className="text-xs text-muted-foreground">
+                        {srv.geo_countries.slice(0, 3).join(", ")}
+                        {srv.geo_countries.length > 3 && ` +${srv.geo_countries.length - 3}`}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground/50">Todos</span>
+                    )}
                   </td>
 
                   {/* Status */}
@@ -413,6 +436,30 @@ export default function Servers() {
                   <SelectItem value="hybrid">Híbrido (live + VOD)</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            {/* GeoIP countries */}
+            <div className="space-y-1.5">
+              <Label>Países permitidos (GeoIP)</Label>
+              <Input
+                value={form.geo_countries}
+                onChange={(e) => setForm((f) => ({ ...f, geo_countries: e.target.value }))}
+                placeholder="VE, CO, MX, US (vacío = todos)"
+              />
+              <p className="text-xs text-muted-foreground">
+                Códigos ISO separados por coma. Vacío permite todos los países.
+              </p>
+            </div>
+            {/* ISP whitelist */}
+            <div className="space-y-1.5">
+              <Label>ISP permitidos</Label>
+              <Input
+                value={form.isp_whitelist}
+                onChange={(e) => setForm((f) => ({ ...f, isp_whitelist: e.target.value }))}
+                placeholder="CANTV, Movistar (vacío = todos)"
+              />
+              <p className="text-xs text-muted-foreground">
+                Nombres de ISP separados por coma. Vacío permite todos.
+              </p>
             </div>
             {/* URL preview */}
             {previewUrl && (
