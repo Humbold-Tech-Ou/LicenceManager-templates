@@ -11,6 +11,8 @@ import {
   User,
   Check,
   ExternalLink,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { PanelConfig } from "@/types/owner-panel";
@@ -69,8 +71,9 @@ export default function Settings() {
   const [savedKey, setSavedKey] = useState<string | null>(null);
 
   // Password
-  const [newPass, setNewPass]       = useState("");
-  const [savingPass, setSavingPass] = useState(false);
+  const [newPass, setNewPass]           = useState("");
+  const [showNewPass, setShowNewPass]   = useState(false);
+  const [savingPass, setSavingPass]     = useState(false);
 
   // TMDB test
   const [testingTmdb, setTestingTmdb] = useState(false);
@@ -198,12 +201,23 @@ export default function Settings() {
 
         <div className="space-y-1.5">
           <Label>Nueva contraseña</Label>
-          <Input
-            type="password"
-            value={newPass}
-            onChange={(e) => setNewPass(e.target.value)}
-            placeholder="Mínimo 6 caracteres"
-          />
+          <div className="relative">
+            <Input
+              type={showNewPass ? "text" : "password"}
+              value={newPass}
+              onChange={(e) => setNewPass(e.target.value)}
+              placeholder="Mínimo 6 caracteres"
+              className="pr-10"
+            />
+            <button
+              type="button"
+              onClick={() => setShowNewPass(v => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              tabIndex={-1}
+            >
+              {showNewPass ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            </button>
+          </div>
           {newPass.length > 0 && newPass.length < 6 && (
             <p className="text-xs text-red-500">Mínimo 6 caracteres</p>
           )}
