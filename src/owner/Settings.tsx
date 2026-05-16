@@ -65,6 +65,7 @@ export default function Settings() {
     branding:      { name: "Mi Panel IPTV", primary_color: "#7C3AED" },
     demo_policy:   { global_monthly_limit: 50 },
     network_depth: { max_levels: null },
+    features:      { vod: true, streams: true, demos: true, resellers: true, custom_packages: true },
   });
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState<string | null>(null);
