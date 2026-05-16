@@ -24,6 +24,9 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Stream, StreamType, Server } from "@/types/owner-panel";
+import { FolderCard } from "@/components/ui/folder-card";
+
+const FOLDER_VARIANTS = ["default", "project", "system", "amber", "emerald", "rose"] as const;
 
 // ── IPTV-Org logo search (cached) ─────────────────────────────────────────────
 
@@ -434,6 +437,35 @@ export default function Streams() {
       </div>
 
       {/* Filters */}
+      <div className="flex flex-wrap items-center gap-2">
+      </div>
+
+      {/* ── Folder shortcuts by category ── */}
+      {!loading && categories.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+          <FolderCard
+            title="Todos los canales"
+            size={`${streams.length} canales`}
+            icon={<Radio />}
+            variant="default"
+            onClick={() => setCatFilter("all")}
+          />
+          {categories.slice(0, 5).map((c, i) => {
+            const count = streams.filter(s => s.category === c).length;
+            return (
+              <FolderCard
+                key={c}
+                title={c}
+                size={`${count} canales`}
+                icon={<Tv2 />}
+                variant={FOLDER_VARIANTS[(i + 1) % FOLDER_VARIANTS.length]}
+                onClick={() => setCatFilter(c)}
+              />
+            );
+          })}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
