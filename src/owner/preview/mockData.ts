@@ -58,9 +58,9 @@ export const mockStreams: Stream[] = [
 ];
 
 export const mockServers: Server[] = [
-  { id: "s-1", name: "Servidor Principal", ip: "185.243.10.20", port: 8080, protocol: "http",  type: "hybrid", status: "active",   geo_countries: ["VE","CO","MX"], isp_whitelist: null, created_at: iso(-200) },
-  { id: "s-2", name: "Servidor VOD",       ip: "185.243.10.21", port: 80,   protocol: "https", type: "vod",    status: "active",   geo_countries: null, isp_whitelist: null, created_at: iso(-200) },
-  { id: "s-3", name: "Servidor Backup",    ip: "185.243.10.22", port: 8080, protocol: "http",  type: "live",   status: "inactive", geo_countries: null, isp_whitelist: ["CANTV"], created_at: iso(-100) },
+  { id: "s-1", name: "Servidor Principal", ip: "185.243.10.20", port: 8080, protocol: "http",  type: "hybrid", status: "active",   geo_countries: ["VE","CO","MX"], isp_whitelist: null, ssh_username: null, ssh_auth_method: null, ssh_secret_id: null, created_at: iso(-200) },
+  { id: "s-2", name: "Servidor VOD",       ip: "185.243.10.21", port: 80,   protocol: "https", type: "vod",    status: "active",   geo_countries: null, isp_whitelist: null, ssh_username: null, ssh_auth_method: null, ssh_secret_id: null, created_at: iso(-200) },
+  { id: "s-3", name: "Servidor Backup",    ip: "185.243.10.22", port: 8080, protocol: "http",  type: "live",   status: "inactive", geo_countries: null, isp_whitelist: ["CANTV"], ssh_username: null, ssh_auth_method: null, ssh_secret_id: null, created_at: iso(-100) },
 ];
 
 const mkLine = (i: number, status: Line["status"], pkgId: string, resellerId: string | null, days: number): Line => {
