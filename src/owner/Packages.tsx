@@ -10,6 +10,13 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -28,7 +35,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Loader2, MoreHorizontal, Plus, Package as PackageIcon } from "lucide-react";
 import { toast } from "sonner";
-import type { Package } from "@/types/owner-panel";
+import type { Package, Bouquet, OutputFormat } from "@/types/owner-panel";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -74,6 +81,12 @@ const DURATION_PRESETS = [
 
 // ── Form ──────────────────────────────────────────────────────────────────────
 
+const OUTPUT_OPTS: { value: OutputFormat; label: string }[] = [
+  { value: "m3u8", label: "HLS (m3u8)" },
+  { value: "ts", label: "TS" },
+  { value: "rtmp", label: "RTMP" },
+];
+
 interface FormState {
   name: string;
   duration_hours: string;
@@ -81,6 +94,8 @@ interface FormState {
   max_connections: string;
   is_demo: boolean;
   active: boolean;
+  bouquet_id: string;
+  output_formats: OutputFormat[];
 }
 
 const EMPTY_FORM: FormState = {
@@ -90,12 +105,15 @@ const EMPTY_FORM: FormState = {
   max_connections: "1",
   is_demo: false,
   active: true,
+  bouquet_id: "",
+  output_formats: ["m3u8", "ts"],
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function Packages() {
   const [packages, setPackages] = useState<Package[]>([]);
+  const [bouquets, setBouquets] = useState<Bouquet[]>([]);
   const [loading, setLoading] = useState(true);
   const [lineCount, setLineCount] = useState<Record<string, number>>({});
 
@@ -111,11 +129,13 @@ export default function Packages() {
 
   async function load() {
     setLoading(true);
-    const [{ data: pkgs }, { data: lines }] = await Promise.all([
-      ownerSupabase.from("packages").select("*").order("credits_cost"),
+    const [{ data: pkgs }, { data: lines }, { data: bqs }] = await Promise.all([
+      ownerSupabase.from("packages").select("*, bouquet:bouquets(id,name)").order("credits_cost"),
       ownerSupabase.from("lines").select("package_id"),
+      ownerSupabase.from("bouquets").select("id, name").eq("active", true).order("name"),
     ]);
     setPackages(pkgs ?? []);
+    setBouquets(bqs ?? []);
     const counts: Record<string, number> = {};
     for (const l of lines ?? []) {
       if (l.package_id) counts[l.package_id] = (counts[l.package_id] ?? 0) + 1;
@@ -146,6 +166,8 @@ export default function Packages() {
       max_connections: String(pkg.max_connections ?? 1),
       is_demo: pkg.is_demo,
       active: pkg.active,
+      bouquet_id: pkg.bouquet_id ?? "",
+      output_formats: pkg.output_formats ?? ["m3u8", "ts"],
     });
     setSheetOpen(true);
   }
@@ -162,6 +184,8 @@ export default function Packages() {
         max_connections: Math.max(1, parseInt(form.max_connections) || 1),
         is_demo: form.is_demo,
         active: form.active,
+        bouquet_id: form.bouquet_id || null,
+        output_formats: form.output_formats.length > 0 ? form.output_formats : ["m3u8", "ts"],
       };
       if (editing) {
         const { error } = await ownerSupabase.from("packages").update(payload).eq("id", editing.id);
@@ -253,6 +277,7 @@ export default function Packages() {
                 <th className="px-4 py-3 font-medium">Duración</th>
                 <th className="px-4 py-3 font-medium">Costo</th>
                 <th className="px-4 py-3 font-medium">Conex. máx.</th>
+                <th className="px-4 py-3 font-medium hidden lg:table-cell">Bouquet</th>
                 <th className="px-4 py-3 font-medium">Líneas</th>
                 <th className="px-4 py-3 font-medium">Activo</th>
                 <th className="px-4 py-3" />
@@ -293,6 +318,10 @@ export default function Packages() {
                     <span className="inline-flex items-center rounded-full bg-violet-50 text-violet-700 border border-violet-200 px-2 py-0.5 text-xs font-medium">
                       {pkg.max_connections ?? 1}
                     </span>
+                  </td>
+                  {/* Bouquet */}
+                  <td className="px-4 py-3 text-muted-foreground text-xs hidden lg:table-cell">
+                    {(pkg as any).bouquet?.name ?? <span className="text-muted-foreground/50">Todos</span>}
                   </td>
                   {/* Lines count */}
                   <td className="px-4 py-3 text-muted-foreground">
@@ -435,6 +464,56 @@ export default function Packages() {
               </div>
               <p className="text-xs text-muted-foreground">
                 Número de dispositivos que pueden reproducir al mismo tiempo con este paquete.
+              </p>
+            </div>
+
+            {/* Bouquet */}
+            <div className="space-y-1.5">
+              <Label>Bouquet (contenido asignado)</Label>
+              <Select
+                value={form.bouquet_id || "__none__"}
+                onValueChange={v => setForm(f => ({ ...f, bouquet_id: v === "__none__" ? "" : v }))}
+              >
+                <SelectTrigger className="text-sm"><SelectValue placeholder="Sin bouquet" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">— Sin bouquet (todo el contenido) —</SelectItem>
+                  {bouquets.map(b => <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                El bouquet controla qué canales y VOD pueden ver las líneas de este paquete.
+              </p>
+            </div>
+
+            {/* Output formats */}
+            <div className="space-y-1.5">
+              <Label>Formatos de salida permitidos</Label>
+              <div className="flex flex-wrap gap-2">
+                {OUTPUT_OPTS.map(opt => {
+                  const checked = form.output_formats.includes(opt.value);
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setForm(f => ({
+                        ...f,
+                        output_formats: checked
+                          ? f.output_formats.filter(o => o !== opt.value)
+                          : [...f.output_formats, opt.value],
+                      }))}
+                      className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${
+                        checked
+                          ? "border-violet-600 bg-violet-50 text-violet-700"
+                          : "border-border bg-background text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Formatos que los reproductores pueden usar con este paquete.
               </p>
             </div>
 
