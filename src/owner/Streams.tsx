@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/select";
 import {
   Loader2, Plus, Search, Radio, MoreHorizontal, X, Tv2,
-  ScanSearch, Copy, Check, Wifi, Zap,
+  ScanSearch, Copy, Check, Wifi, Zap, Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -342,6 +342,64 @@ export default function Streams() {
     });
   }
 
+  // ── M3U Import ──
+  const [importingM3u, setImportingM3u] = useState(false);
+
+  async function handleM3uImport(file: File) {
+    setImportingM3u(true);
+    try {
+      const text = await file.text();
+      const lines = text.split("\n");
+      const entries: { name: string; url: string; logo: string; category: string; epg: string }[] = [];
+      let cur: Partial<typeof entries[0]> = {};
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("#EXTINF")) {
+          // Parse #EXTINF line
+          const logoMatch = trimmed.match(/tvg-logo="([^"]*)"/);
+          const groupMatch = trimmed.match(/group-title="([^"]*)"/);
+          const epgMatch = trimmed.match(/tvg-id="([^"]*)"/);
+          const nameMatch = trimmed.match(/,(.+)$/);
+          cur = {
+            logo: logoMatch?.[1] || "",
+            category: groupMatch?.[1] || "",
+            epg: epgMatch?.[1] || "",
+            name: nameMatch?.[1]?.trim() || "",
+          };
+        } else if (trimmed && !trimmed.startsWith("#") && cur.name) {
+          entries.push({ name: cur.name, url: trimmed, logo: cur.logo || "", category: cur.category || "", epg: cur.epg || "" });
+          cur = {};
+        }
+      }
+
+      if (entries.length === 0) {
+        toast.error("No se encontraron canales en el archivo M3U");
+        return;
+      }
+
+      const payload = entries.map((e, i) => ({
+        name: e.name,
+        stream_url: e.url,
+        stream_type: e.url.includes(".m3u8") ? "hls" : e.url.startsWith("rtmp://") ? "rtmp" : "ts",
+        logo_url: e.logo || null,
+        category: e.category || null,
+        epg_id: e.epg || null,
+        sort_order: streams.length + i + 1,
+        active: true,
+      }));
+
+      const { error } = await ownerSupabase.from("streams").insert(payload);
+      if (error) throw error;
+      toast.success(`${entries.length} canales importados desde M3U`);
+      loadAll();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "Error importando M3U");
+    } finally {
+      setImportingM3u(false);
+    }
+  }
+
   const typeConfig = STREAM_TYPE_CONFIG[form.stream_type];
 
   return (
@@ -360,9 +418,19 @@ export default function Streams() {
             </p>
           )}
         </div>
-        <Button size="sm" onClick={openAdd} className="bg-violet-600 hover:bg-violet-700 gap-1.5 shrink-0">
-          <Plus className="size-4" /> Añadir canal
-        </Button>
+        <div className="flex gap-2 shrink-0">
+          <Button size="sm" variant="outline" className="gap-1.5" asChild disabled={importingM3u}>
+            <label className="cursor-pointer">
+              {importingM3u ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+              Importar M3U
+              <input type="file" accept=".m3u,.m3u8" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleM3uImport(f); e.target.value = ""; }} />
+            </label>
+          </Button>
+          <Button size="sm" onClick={openAdd} className="bg-violet-600 hover:bg-violet-700 gap-1.5">
+            <Plus className="size-4" /> Añadir canal
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
