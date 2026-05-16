@@ -40,9 +40,12 @@ import {
   Wifi,
   Copy,
   Server as ServerIcon,
+  KeyRound,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { Server, ServerProtocol, ServerType } from "@/types/owner-panel";
+import type { Server, ServerProtocol, ServerType, SshAuthMethod } from "@/types/owner-panel";
+import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -58,6 +61,7 @@ const TYPE_COLOR: Record<ServerType, string> = {
 };
 
 function serverUrl(s: Pick<Server, "protocol" | "ip" | "port">) {
+  if (s.protocol === "ssh") return `ssh://${s.ip}:${s.port}`;
   return `${s.protocol}://${s.ip}:${s.port}`;
 }
 
@@ -78,6 +82,11 @@ interface FormState {
   type: ServerType;
   geo_countries: string;
   isp_whitelist: string;
+  ssh_username: string;
+  ssh_auth_method: SshAuthMethod;
+  ssh_password: string;
+  ssh_private_key: string;
+  ssh_passphrase: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -88,6 +97,11 @@ const EMPTY_FORM: FormState = {
   type: "hybrid",
   geo_countries: "",
   isp_whitelist: "",
+  ssh_username: "",
+  ssh_auth_method: "password",
+  ssh_password: "",
+  ssh_private_key: "",
+  ssh_passphrase: "",
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -135,6 +149,11 @@ export default function Servers() {
       type: srv.type,
       geo_countries: (srv.geo_countries ?? []).join(", "),
       isp_whitelist: (srv.isp_whitelist ?? []).join(", "),
+      ssh_username: srv.ssh_username ?? "",
+      ssh_auth_method: (srv.ssh_auth_method ?? "password") as SshAuthMethod,
+      ssh_password: "",
+      ssh_private_key: "",
+      ssh_passphrase: "",
     });
     setSheetOpen(true);
   }
@@ -144,6 +163,48 @@ export default function Servers() {
   async function testConnection() {
     setTesting(true);
     try {
+      if (form.protocol === "ssh") {
+        const SUPABASE_URL = "https://rrresinucnxfdaaqcqcp.supabase.co";
+        const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJycmVzaW51Y254ZmRhYXFjcWNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMzI5OTksImV4cCI6MjA5MTkwODk5OX0.PHQTe4-m5Nv16SXK64xLSybO-rh9_ZLiCiRO_KRam2I";
+        if (!form.ssh_username) {
+          toast.error("Falta el usuario SSH");
+          return;
+        }
+        if (form.ssh_auth_method === "password" && !form.ssh_password) {
+          toast.error("Falta la contraseña SSH");
+          return;
+        }
+        if (form.ssh_auth_method === "key" && !form.ssh_private_key) {
+          toast.error("Falta la clave privada");
+          return;
+        }
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/test-ssh-connection`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            host: form.ip,
+            port: parseInt(form.port) || 22,
+            username: form.ssh_username,
+            ...(form.ssh_auth_method === "password"
+              ? { password: form.ssh_password }
+              : { private_key: form.ssh_private_key, passphrase: form.ssh_passphrase || undefined }),
+          }),
+          signal: AbortSignal.timeout(20000),
+        });
+        const data = await res.json();
+        if (data?.ok) {
+          toast.success("SSH conectó correctamente", {
+            description: data.info ? data.info.slice(0, 140) : undefined,
+          });
+        } else {
+          toast.error("SSH falló", { description: data?.error ?? "Error desconocido" });
+        }
+        return;
+      }
       const url = `${form.protocol}://${form.ip}:${form.port}`;
       const res = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(5000) });
       if (res.ok || res.status < 500) {
@@ -165,25 +226,55 @@ export default function Servers() {
     try {
       const geoArr = form.geo_countries.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
       const ispArr = form.isp_whitelist.split(",").map((s) => s.trim()).filter(Boolean);
-      const payload = {
+      const isSsh = form.protocol === "ssh";
+      const payload: Record<string, unknown> = {
         name: form.name,
         ip: form.ip,
-        port: parseInt(form.port) || 8080,
+        port: parseInt(form.port) || (isSsh ? 22 : 8080),
         protocol: form.protocol,
         type: form.type,
         status: editing?.status ?? "active",
         geo_countries: geoArr.length > 0 ? geoArr : null,
         isp_whitelist: ispArr.length > 0 ? ispArr : null,
+        ssh_username: isSsh ? form.ssh_username || null : null,
+        ssh_auth_method: isSsh ? form.ssh_auth_method : null,
       };
+      let serverId: string | undefined;
       if (editing) {
         const { error } = await ownerSupabase.from("servers").update(payload).eq("id", editing.id);
         if (error) throw error;
+        serverId = editing.id;
         toast.success("Servidor actualizado");
       } else {
-        const { error } = await ownerSupabase.from("servers").insert(payload);
+        const { data, error } = await ownerSupabase
+          .from("servers")
+          .insert(payload)
+          .select("id")
+          .single();
         if (error) throw error;
+        serverId = (data as { id: string } | null)?.id;
         toast.success("Servidor agregado");
       }
+
+      // Persist SSH secret in Vault (only when user provided a new value)
+      if (isSsh && serverId) {
+        const secret =
+          form.ssh_auth_method === "password"
+            ? form.ssh_password
+            : form.ssh_private_key;
+        if (secret) {
+          const { error: secErr } = await ownerSupabase.rpc("set_server_ssh_secret", {
+            _server_id: serverId,
+            _secret: secret,
+          });
+          if (secErr) {
+            toast.warning("Servidor guardado, pero falló guardar la clave SSH", {
+              description: secErr.message,
+            });
+          }
+        }
+      }
+
       setSheetOpen(false);
       load();
     } catch (err: unknown) {
@@ -407,7 +498,20 @@ export default function Servers() {
                 <Label>Protocolo</Label>
                 <Select
                   value={form.protocol}
-                  onValueChange={(v) => setForm((f) => ({ ...f, protocol: v as ServerProtocol }))}
+                  onValueChange={(v) => {
+                    const next = v as ServerProtocol;
+                    setForm((f) => ({
+                      ...f,
+                      protocol: next,
+                      // sensible default port when switching to/from ssh
+                      port:
+                        next === "ssh" && (f.port === "8080" || f.port === "80" || f.port === "443")
+                          ? "22"
+                          : next !== "ssh" && f.port === "22"
+                          ? "8080"
+                          : f.port,
+                    }));
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -416,10 +520,93 @@ export default function Servers() {
                     <SelectItem value="http">HTTP</SelectItem>
                     <SelectItem value="https">HTTPS</SelectItem>
                     <SelectItem value="rtmp">RTMP</SelectItem>
+                    <SelectItem value="ssh">SSH</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
+            {/* SSH credentials block */}
+            {form.protocol === "ssh" && (
+              <div className="space-y-3 rounded-lg border border-violet-200 bg-violet-50/40 p-3">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-violet-700">
+                  <KeyRound className="size-3.5" />
+                  Credenciales SSH
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Usuario SSH</Label>
+                  <Input
+                    value={form.ssh_username}
+                    onChange={(e) => setForm((f) => ({ ...f, ssh_username: e.target.value }))}
+                    placeholder="root"
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Método de autenticación</Label>
+                  <RadioGroup
+                    value={form.ssh_auth_method}
+                    onValueChange={(v) =>
+                      setForm((f) => ({ ...f, ssh_auth_method: v as SshAuthMethod }))
+                    }
+                    className="flex gap-4"
+                  >
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="password" id="ssh-pwd" />
+                      <Label htmlFor="ssh-pwd" className="font-normal cursor-pointer">
+                        Contraseña
+                      </Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <RadioGroupItem value="key" id="ssh-key" />
+                      <Label htmlFor="ssh-key" className="font-normal cursor-pointer">
+                        Clave privada
+                      </Label>
+                    </div>
+                  </RadioGroup>
+                </div>
+                {form.ssh_auth_method === "password" ? (
+                  <div className="space-y-1.5">
+                    <Label>Contraseña</Label>
+                    <Input
+                      type="password"
+                      value={form.ssh_password}
+                      onChange={(e) => setForm((f) => ({ ...f, ssh_password: e.target.value }))}
+                      placeholder={editing ? "Dejar vacío para no cambiar" : "••••••••"}
+                      autoComplete="new-password"
+                    />
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label>Clave privada (PEM)</Label>
+                      <Textarea
+                        rows={5}
+                        value={form.ssh_private_key}
+                        onChange={(e) => setForm((f) => ({ ...f, ssh_private_key: e.target.value }))}
+                        placeholder={
+                          editing
+                            ? "Dejar vacío para no cambiar"
+                            : "-----BEGIN OPENSSH PRIVATE KEY-----\n..."
+                        }
+                        className="font-mono text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Passphrase (opcional)</Label>
+                      <Input
+                        type="password"
+                        value={form.ssh_passphrase}
+                        onChange={(e) => setForm((f) => ({ ...f, ssh_passphrase: e.target.value }))}
+                        autoComplete="new-password"
+                      />
+                    </div>
+                  </>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  La contraseña/clave se guarda cifrada en Supabase Vault. Nadie del panel puede verla en texto plano.
+                </p>
+              </div>
+            )}
             {/* Type */}
             <div className="space-y-1.5">
               <Label>Tipo</Label>
