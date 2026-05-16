@@ -23,6 +23,8 @@ export interface Reseller {
   credits_available?: number;
 }
 
+export type OutputFormat = "m3u8" | "ts" | "rtmp";
+
 export interface Package {
   id: string;
   name: string;
@@ -31,7 +33,11 @@ export interface Package {
   max_connections: number;
   is_demo: boolean;
   active: boolean;
+  bouquet_id: string | null;
+  output_formats: OutputFormat[];
   created_at: string;
+  // join
+  bouquet?: Pick<Bouquet, "id" | "name">;
 }
 
 export interface Line {
@@ -45,6 +51,8 @@ export interface Line {
   expires_at: string;
   max_connections: number;
   notes: string | null;
+  reseller_notes: string | null;
+  allowed_outputs: OutputFormat[];
   created_at: string;
   // joins
   reseller?: Pick<Reseller, "id" | "name">;
@@ -59,6 +67,8 @@ export interface Server {
   protocol: ServerProtocol;
   type: ServerType;
   status: string;
+  geo_countries: string[] | null;
+  isp_whitelist: string[] | null;
   created_at: string;
 }
 
@@ -141,4 +151,76 @@ export interface ActiveConnection {
   ip: string | null;
   user_agent: string | null;
   connected_at: string;
+}
+
+// ── Bouquets ─────────────────────────────────────────────────────────────────
+
+export interface Bouquet {
+  id: string;
+  name: string;
+  description: string | null;
+  active: boolean;
+  created_at: string;
+}
+
+export interface BouquetItem {
+  id: string;
+  bouquet_id: string;
+  stream_id: string | null;
+  vod_item_id: string | null;
+  // joins
+  stream?: Pick<Stream, "id" | "name" | "logo_url">;
+  vod_item?: Pick<VodItem, "id" | "title" | "poster_url" | "type">;
+}
+
+// ── EPG ──────────────────────────────────────────────────────────────────────
+
+export interface EpgSource {
+  id: string;
+  name: string;
+  url: string;
+  active: boolean;
+  last_sync: string | null;
+  created_at: string;
+}
+
+// ── Line Activity ────────────────────────────────────────────────────────────
+
+export interface LineActivity {
+  id: string;
+  line_id: string;
+  ip: string | null;
+  user_agent: string | null;
+  country_code: string | null;
+  isp: string | null;
+  action: string;
+  created_at: string;
+}
+
+// ── Tickets ──────────────────────────────────────────────────────────────────
+
+export type TicketStatus = "open" | "answered" | "closed";
+export type TicketPriority = "low" | "normal" | "high";
+
+export interface Ticket {
+  id: string;
+  reseller_id: string;
+  subject: string;
+  status: TicketStatus;
+  priority: TicketPriority;
+  created_at: string;
+  updated_at: string;
+  // joins
+  reseller?: Pick<Reseller, "id" | "name" | "role">;
+  replies_count?: number;
+}
+
+export interface TicketReply {
+  id: string;
+  ticket_id: string;
+  sender_id: string;
+  body: string;
+  created_at: string;
+  // join
+  sender?: Pick<Reseller, "id" | "name" | "role">;
 }
