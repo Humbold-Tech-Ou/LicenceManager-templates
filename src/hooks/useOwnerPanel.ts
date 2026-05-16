@@ -2,20 +2,28 @@ import { createClient } from "@supabase/supabase-js";
 import { useState, useEffect, createContext, useContext } from "react";
 import type { Reseller, PanelConfig } from "@/types/owner-panel";
 
+// ── Separate Supabase client for the Owner's own project ─────────────────────
+// In production these env vars point to the tenant's Supabase project.
+// In the admin panel (master) they are empty — lazy init avoids the crash.
 const OWNER_URL = import.meta.env.VITE_OWNER_SUPABASE_URL as string | undefined;
 const OWNER_KEY = import.meta.env.VITE_OWNER_SUPABASE_ANON_KEY as string | undefined;
 
 let _ownerClient: ReturnType<typeof createClient> | null = null;
-// Preview injection point — set by PreviewProvider before any component mounts.
+// Preview injection — set by PreviewProvider before any component mounts.
 let _previewClient: any = null;
 export function installPreviewClient(client: any) { _previewClient = client; }
 
 function getOwnerClient() {
   if (!OWNER_URL || !OWNER_KEY) return null;
-  if (!_ownerClient) _ownerClient = createClient(OWNER_URL, OWNER_KEY);
+  if (!_ownerClient) {
+    _ownerClient = createClient(OWNER_URL, OWNER_KEY);
+  }
   return _ownerClient;
 }
 
+// Stub returned when owner Supabase env vars are not configured (admin panel context).
+// Mimics the shape of the real client so calls like `ownerSupabase.auth.getSession()`
+// or `ownerSupabase.from(...).select(...)` don't throw — they resolve with empty data.
 const notConfigured = { data: null, error: { message: "Owner Supabase not configured" } };
 const emptyList = { data: [], error: null };
 
@@ -37,7 +45,9 @@ const stubQueryBuilder: any = {
 
 const stubAuth = {
   getSession: () => Promise.resolve({ data: { session: null }, error: null }),
-  onAuthStateChange: (_cb: unknown) => ({ data: { subscription: { unsubscribe: () => {} } } }),
+  onAuthStateChange: (_cb: unknown) => ({
+    data: { subscription: { unsubscribe: () => {} } },
+  }),
   signInWithPassword: () => Promise.resolve(notConfigured),
   signOut: () => Promise.resolve({ error: null }),
 };
@@ -48,35 +58,68 @@ const stubClient = {
   functions: { invoke: () => Promise.resolve(notConfigured) },
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const ownerSupabase: any = new Proxy({} as any, {
   get(_target, prop) {
     // Preview mock takes priority over real client and stub.
-    const client = _previewClient ?? getOwnerClient() ?? (stubClient as any);
-    const val = (client as Record<string | symbol, unknown>)[prop];
+    const client = _previewClient ?? getOwnerClient() ?? (stubClient as unknown as ReturnType<typeof createClient>);
+    const val = (client as unknown as Record<string | symbol, unknown>)[prop];
     return typeof val === "function" ? (val as (...a: unknown[]) => unknown).bind(client) : val;
   },
 });
 
 // ── Cascading impersonation context ──────────────────────────────────────────
-export interface CascadingImpersonationCtx {
-  isImpersonationMode: boolean;
-  impersonatedReseller: Reseller | null;
-  setImpersonatedReseller: (r: Reseller | null) => void;
-}
+// Used to view the Owner panel as one of the resellers (and recursively, as
+// one of their sub-resellers). The stack lets us nest impersonation arbitrarily
+// — entering a sub pushes a new level, the "Salir" button pops the last one.
 
-import React from "react";
+export interface CascadingImpersonationCtx {
+  /** true when rendered inside an impersonation wrapper (always true under OwnerLayout) */
+  isImpersonationMode: boolean;
+  /** Top of the impersonation stack — null when viewing as the logged-in user */
+  impersonatedReseller: Reseller | null;
+  /** Full stack (oldest → newest). Empty when viewing as the logged-in user. */
+  impersonationStack: Reseller[];
+  /** Push a reseller onto the stack (or pass null to clear the whole stack) */
+  setImpersonatedReseller: (r: Reseller | null) => void;
+  /** Pop the last entry off the stack */
+  popImpersonation: () => void;
+  /** Clear the whole stack at once */
+  clearImpersonation: () => void;
+}
 
 const CascadingImpersonationContext = createContext<CascadingImpersonationCtx>({
   isImpersonationMode: false,
   impersonatedReseller: null,
+  impersonationStack: [],
   setImpersonatedReseller: () => {},
+  popImpersonation: () => {},
+  clearImpersonation: () => {},
 });
 
+import React from "react";
+
 export function CascadingImpersonationProvider({ children }: { children: React.ReactNode }) {
-  const [impersonatedReseller, setImpersonatedReseller] = useState<Reseller | null>(null);
+  const [stack, setStack] = useState<Reseller[]>([]);
+  const top = stack[stack.length - 1] ?? null;
+  const setImpersonatedReseller = (r: Reseller | null) => {
+    if (r === null) setStack([]);
+    else setStack((s) => [...s, r]);
+  };
+  const popImpersonation = () => setStack((s) => s.slice(0, -1));
+  const clearImpersonation = () => setStack([]);
   return React.createElement(
     CascadingImpersonationContext.Provider,
-    { value: { isImpersonationMode: true, impersonatedReseller, setImpersonatedReseller } },
+    {
+      value: {
+        isImpersonationMode: true,
+        impersonatedReseller: top,
+        impersonationStack: stack,
+        setImpersonatedReseller,
+        popImpersonation,
+        clearImpersonation,
+      },
+    },
     children
   );
 }
@@ -104,7 +147,7 @@ export function OwnerAuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    ownerSupabase.auth.getSession().then(({ data: { session } }: any) => {
+    ownerSupabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         loadReseller(session.user.email!);
       } else {
@@ -112,9 +155,9 @@ export function OwnerAuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    const { data: { subscription } } = ownerSupabase.auth.onAuthStateChange((_event: any, session: any) => {
+    const { data: { subscription } } = ownerSupabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
-        setLoading(true); // keep loading=true while fetching reseller; prevents OwnerProtectedRoute from redirecting too early
+        setLoading(true); // keep loading=true while fetchin reseller; prevents OwnerProtectedRoute from redirecting too early
         loadReseller(session.user.email!);
       } else {
         setReseller(null);
@@ -149,9 +192,14 @@ export function OwnerAuthProvider({ children }: { children: React.ReactNode }) {
 export function useOwnerAuth(): OwnerAuthCtx {
   const ctx = useContext(OwnerAuthContext);
   const { impersonatedReseller } = useContext(CascadingImpersonationContext);
-  if (impersonatedReseller) return { ...ctx, reseller: impersonatedReseller };
+  // When cascading impersonation is active, override the session reseller
+  if (impersonatedReseller) {
+    return { ...ctx, reseller: impersonatedReseller };
+  }
   return ctx;
 }
+
+// ── Panel config helper ───────────────────────────────────────────────────────
 
 export function useOwnerConfig() {
   const [config, setConfig] = useState<PanelConfig>({
@@ -165,7 +213,7 @@ export function useOwnerConfig() {
     ownerSupabase
       .from("panel_config")
       .select("key, value")
-      .then(({ data }: any) => {
+      .then(({ data }) => {
         if (!data) return;
         const merged: Partial<PanelConfig> = {};
         for (const row of data) {
