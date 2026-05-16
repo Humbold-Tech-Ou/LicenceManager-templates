@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import type { VodItem, VodType, Server } from "@/types/owner-panel";
+import { FolderCard } from "@/components/ui/folder-card";
 
 // ── TMDB ──────────────────────────────────────────────────────────────────────
 
@@ -754,6 +755,42 @@ export default function VOD() {
           )}
         </TabsList>
       </Tabs>
+
+      {/* ── Folder shortcuts ── */}
+      {!loading && items.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          <FolderCard
+            title="Películas"
+            size={`${movieCount} archivos`}
+            icon={<Film />}
+            variant="default"
+            onClick={() => setTabType("movie")}
+          />
+          <FolderCard
+            title="Series"
+            size={`${seriesCount} archivos`}
+            icon={<Tv />}
+            variant="project"
+            onClick={() => setTabType("series")}
+          />
+          <FolderCard
+            title="Activos"
+            size={`${activeCount} publicados`}
+            icon={<FolderOpen />}
+            variant="emerald"
+            onClick={() => { setTabType("all"); setFilterStatus("active"); }}
+          />
+          {pendingItems.length > 0 && (
+            <FolderCard
+              title="Revisión TMDB"
+              size={`${pendingItems.length} pendientes`}
+              icon={<AlertTriangle />}
+              variant="amber"
+              onClick={() => setTabType("pending")}
+            />
+          )}
+        </div>
+      )}
 
       {/* ── Search + status filter ── */}
       <div className="flex flex-wrap items-center gap-2">
