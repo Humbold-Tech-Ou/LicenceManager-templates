@@ -3,6 +3,7 @@ import { ownerSupabase, useOwnerAuth } from "@/hooks/useOwnerPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle,
 } from "@/components/ui/sheet";
@@ -20,12 +21,18 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Loader2, MoreHorizontal, Plus, Eye, EyeOff, Copy, Check,
-  RefreshCw, Pencil, Trash2,
+  RefreshCw, Pencil, Trash2, Activity,
 } from "lucide-react";
 import { toast } from "sonner";
-import { format, differenceInDays, isPast } from "date-fns";
+import { format, differenceInDays, isPast, formatDistanceToNowStrict } from "date-fns";
 import { es } from "date-fns/locale";
-import type { Line, Package, Reseller, Server, LineStatus } from "@/types/owner-panel";
+import type { Line, Package, Reseller, Server, LineStatus, OutputFormat, LineActivity } from "@/types/owner-panel";
+
+const OUTPUT_OPTS: { value: OutputFormat; label: string }[] = [
+  { value: "m3u8", label: "M3U8 (HLS)" },
+  { value: "ts", label: "TS (MPEG-TS)" },
+  { value: "rtmp", label: "RTMP" },
+];
 
 // ── Subtree utility ───────────────────────────────────────────────────────────
 function getSubtree<T extends { id: string; parent_id: string | null }>(
@@ -107,7 +114,13 @@ export default function Lines() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     username: "", password: "", package_id: "", reseller_id: "", notes: "",
+    reseller_notes: "", allowed_outputs: ["m3u8", "ts"] as OutputFormat[],
   });
+
+  // Line activity
+  const [activityTarget, setActivityTarget] = useState<Line | null>(null);
+  const [activityData, setActivityData] = useState<LineActivity[]>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
 
   // Renew dialog
   const [renewTarget, setRenewTarget] = useState<Line | null>(null);
@@ -172,6 +185,8 @@ export default function Lines() {
       package_id: packages.find((p) => !p.is_demo)?.id ?? packages[0]?.id ?? "",
       reseller_id: me?.id ?? "",
       notes: "",
+      reseller_notes: "",
+      allowed_outputs: ["m3u8", "ts"],
     });
     setSheetOpen(true);
   }
@@ -247,6 +262,8 @@ export default function Lines() {
       package_id: line.package_id ?? "",
       reseller_id: line.reseller_id ?? "",
       notes: line.notes ?? "",
+      reseller_notes: line.reseller_notes ?? "",
+      allowed_outputs: line.allowed_outputs ?? ["m3u8", "ts"],
     });
     setSheetOpen(true);
   }
@@ -258,6 +275,8 @@ export default function Lines() {
       const { error } = await ownerSupabase.from("lines").update({
         reseller_id: form.reseller_id || null,
         notes: form.notes || null,
+        reseller_notes: form.reseller_notes || null,
+        allowed_outputs: form.allowed_outputs,
       }).eq("id", editTarget.id);
       if (error) throw error;
       toast.success("Línea actualizada");
@@ -268,6 +287,20 @@ export default function Lines() {
     } finally {
       setSaving(false);
     }
+  }
+
+  // ── Line Activity ────────────────────────────────────────────────────────────
+  async function openActivity(line: Line) {
+    setActivityTarget(line);
+    setActivityLoading(true);
+    const { data } = await ownerSupabase
+      .from("line_activity")
+      .select("*")
+      .eq("line_id", line.id)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    setActivityData(data ?? []);
+    setActivityLoading(false);
   }
 
   // ── Renew ───────────────────────────────────────────────────────────────────
@@ -523,6 +556,9 @@ export default function Lines() {
                           <DropdownMenuItem onClick={() => copyText(getM3U(line), `m3u-${line.id}`)}>
                             Copiar M3U
                           </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => openActivity(line)}>
+                            <Activity className="size-3.5 mr-2" /> Actividad
+                          </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={() => openRenew(line)}>
                             <RefreshCw className="size-3.5 mr-2" /> Renovar
@@ -618,6 +654,55 @@ export default function Lines() {
               <Input value={form.notes} placeholder="Cliente, dispositivo, etc."
                 onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
             </div>
+
+            {/* Reseller notes — only in edit mode */}
+            {sheetMode === "edit" && (
+              <div className="space-y-1.5">
+                <Label>Notas del reseller</Label>
+                <Textarea
+                  value={form.reseller_notes}
+                  placeholder="Notas internas sobre esta línea..."
+                  rows={3}
+                  onChange={(e) => setForm((f) => ({ ...f, reseller_notes: e.target.value }))}
+                />
+              </div>
+            )}
+
+            {/* Allowed output formats */}
+            {sheetMode === "edit" && (
+              <div className="space-y-1.5">
+                <Label>Formatos de salida permitidos</Label>
+                <div className="flex flex-wrap gap-2">
+                  {OUTPUT_OPTS.map((opt) => {
+                    const active = form.allowed_outputs.includes(opt.value);
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => {
+                          setForm((f) => ({
+                            ...f,
+                            allowed_outputs: active
+                              ? f.allowed_outputs.filter((o) => o !== opt.value)
+                              : [...f.allowed_outputs, opt.value],
+                          }));
+                        }}
+                        className={`px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
+                          active
+                            ? "bg-violet-100 text-violet-700 border-violet-300"
+                            : "bg-muted text-muted-foreground border-border hover:bg-zinc-100"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Define qué formatos puede usar esta línea para streaming.
+                </p>
+              </div>
+            )}
 
             <Button onClick={sheetMode === "create" ? handleCreate : handleEdit}
               disabled={saving || (sheetMode === "create" && (!form.username || !form.password || !form.package_id))}
@@ -734,6 +819,52 @@ export default function Lines() {
             <p className="text-sm text-muted-foreground">
               No hay servidores configurados. Ve a Servidores para agregar uno.
             </p>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Line Activity Dialog ── */}
+      <Dialog open={!!activityTarget} onOpenChange={(o) => !o && setActivityTarget(null)}>
+        <DialogContent className="max-w-lg max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Actividad — {activityTarget?.username}</DialogTitle>
+          </DialogHeader>
+          {activityLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="size-5 animate-spin text-violet-600" />
+            </div>
+          ) : activityData.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-6 text-center">
+              No hay actividad registrada para esta línea.
+            </p>
+          ) : (
+            <div className="overflow-y-auto flex-1 -mx-2 px-2 space-y-1">
+              {activityData.map((a) => (
+                <div key={a.id} className="flex items-start gap-3 rounded-lg p-2.5 hover:bg-muted/40 text-sm">
+                  <div className="size-7 rounded-full bg-violet-100 text-violet-600 flex items-center justify-center shrink-0 mt-0.5">
+                    <Activity className="size-3.5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-xs capitalize">{a.action}</span>
+                      {a.country_code && (
+                        <span className="text-xs bg-muted px-1.5 py-0.5 rounded">{a.country_code}</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {a.ip ?? "IP desconocida"}
+                      {a.isp ? ` · ${a.isp}` : ""}
+                    </p>
+                    {a.user_agent && (
+                      <p className="text-xs text-muted-foreground/70 truncate mt-0.5">{a.user_agent}</p>
+                    )}
+                  </div>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0">
+                    {formatDistanceToNowStrict(new Date(a.created_at), { addSuffix: true, locale: es })}
+                  </span>
+                </div>
+              ))}
+            </div>
           )}
         </DialogContent>
       </Dialog>
