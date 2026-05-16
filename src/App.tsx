@@ -15,11 +15,14 @@ import TenantDetail from "@/pages/TenantDetail";
 import Settings from "@/pages/Settings";
 import PanelVersions from "@/pages/PanelVersions";
 import PanelVersionDetail from "@/pages/PanelVersionDetail";
+import Audit from "@/pages/Audit";
+import TenantImpersonate from "@/pages/TenantImpersonate";
 import Onboarding from "@/pages/Onboarding";
 import OAuthCallback from "@/pages/OAuthCallback";
 import TenantPortal from "@/pages/TenantPortal";
 import NotFound from "@/pages/NotFound";
 // Owner panel
+import { PreviewProvider } from "@/owner/preview/PreviewProvider";
 import OwnerLogin from "@/owner/OwnerLogin";
 import OwnerLayout from "@/owner/OwnerLayout";
 import OwnerProtectedRoute from "@/owner/OwnerProtectedRoute";
@@ -32,11 +35,13 @@ import OwnerStreams from "@/owner/Streams";
 import OwnerVOD from "@/owner/VOD";
 import OwnerVODDetail from "@/owner/VODDetail";
 import OwnerSettings from "@/owner/Settings";
-// Owner preview — only included when VITE_OWNER_SUPABASE_URL is NOT set (i.e. not a tenant build)
-import { PreviewProvider } from "@/owner/preview/PreviewProvider";
 
-const IS_TENANT_PANEL = !!import.meta.env.VITE_OWNER_SUPABASE_URL;
 const queryClient = new QueryClient();
+
+// When VITE_OWNER_SUPABASE_URL is set the app is running as a tenant panel deployment.
+// In that context: redirect root to /owner/login and exclude /owner-preview/* routes
+// so tenants never see mock data.
+const IS_TENANT_PANEL = !!import.meta.env.VITE_OWNER_SUPABASE_URL;
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -46,18 +51,21 @@ const App = () => (
         <AuthProvider>
           <OwnerAuthProvider>
             <Routes>
-              <Route path="/login" element={<Navigate to="/owner/login" replace />} />
+              <Route path="/login" element={<Login />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
-              <Route path="/" element={<Navigate to="/owner/login" replace />} />
+              {/* Tenant panels land on /owner/login; super admin panel lands on /dashboard */}
+              <Route path="/" element={<Navigate to={IS_TENANT_PANEL ? "/owner/login" : "/dashboard"} replace />} />
               {/* Super admin routes */}
               <Route element={<ProtectedRoute requireAdmin><AppLayout /></ProtectedRoute>}>
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/tenants" element={<Tenants />} />
                 <Route path="/tenants/:id" element={<TenantDetail />} />
+                <Route path="/tenants/:id/impersonate/*" element={<TenantImpersonate />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/versions" element={<PanelVersions />} />
                 <Route path="/versions/:id" element={<PanelVersionDetail />} />
+                <Route path="/audit" element={<Audit />} />
               </Route>
               {/* Tenant routes */}
               <Route path="/portal/:tenantId" element={<ProtectedRoute><TenantPortal /></ProtectedRoute>} />
@@ -65,6 +73,7 @@ const App = () => (
               <Route path="/onboarding" element={<Onboarding />} />
               <Route path="/onboarding/:tenantId" element={<Onboarding />} />
               <Route path="/oauth/callback" element={<OAuthCallback />} />
+              <Route path="/oauth/vercel/callback" element={<OAuthCallback />} />
               {/* Owner panel routes — separate Supabase auth */}
               <Route path="/owner/login" element={<OwnerLogin />} />
               <Route path="/owner" element={<OwnerProtectedRoute />}>
@@ -83,7 +92,7 @@ const App = () => (
                   <Route path="settings" element={<OwnerSettings />} />
                 </Route>
               </Route>
-              {/* Preview routes — excluded from tenant builds at compile time */}
+              {/* Public preview routes — only in super admin context, excluded from tenant deploys */}
               {!IS_TENANT_PANEL && (
                 <>
                   <Route path="/owner-preview/login" element={<PreviewProvider><OwnerLogin /></PreviewProvider>} />
@@ -94,7 +103,7 @@ const App = () => (
                     <Route path="resellers" element={<OwnerResellers />} />
                     <Route path="packages"  element={<OwnerPackages />} />
                     <Route path="servers"   element={<OwnerServers />} />
-                    <Route path="streams"   element={<OwnerStreams />} />
+                    <Route path="streams"  element={<OwnerStreams />} />
                     <Route path="vod">
                       <Route index element={<OwnerVOD />} />
                       <Route path=":id" element={<OwnerVODDetail />} />
