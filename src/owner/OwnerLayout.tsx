@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { useOwnerAuth, useOwnerConfig } from "@/hooks/useOwnerPanel";
+import { useOwnerAuth, useOwnerConfig, useCascadingImpersonation } from "@/hooks/useOwnerPanel";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState, useCallback } from "react";
 import {
@@ -17,6 +17,8 @@ import {
   ListMusic,
   CalendarDays,
   MessageSquare,
+  Eye,
+  ChevronRight,
 } from "lucide-react";
 
 const NAV_ALL = [
@@ -144,6 +146,7 @@ export default function OwnerLayout() {
   const { reseller, signOut } = useOwnerAuth();
   const config = useOwnerConfig();
   const navigate = useNavigate();
+  const { impersonationStack, popImpersonation, clearImpersonation } = useCascadingImpersonation();
   const primaryColor = config.branding?.primary_color || "#7C3AED";
   const features = config.features;
   const isMobile = useIsMobile();
@@ -324,6 +327,41 @@ export default function OwnerLayout() {
 
       {/* Main */}
       <main className="flex-1 overflow-auto">
+        {impersonationStack.length > 0 && (
+          <div className="sticky top-0 z-30 flex items-center gap-2 border-b border-amber-300 bg-amber-50 px-4 py-2 text-xs text-amber-900 shadow-sm">
+            <Eye className="size-3.5 shrink-0" />
+            <span className="font-medium">Viendo el panel como:</span>
+            <div className="flex flex-wrap items-center gap-1 min-w-0 flex-1">
+              {impersonationStack.map((r, i) => (
+                <span key={r.id} className="flex items-center gap-1">
+                  {i > 0 && <ChevronRight className="size-3 opacity-50" />}
+                  <span className="rounded-md bg-amber-200/70 px-1.5 py-0.5 font-semibold">
+                    {r.name}
+                  </span>
+                  <span className="text-[10px] opacity-70">({r.role})</span>
+                </span>
+              ))}
+            </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-xs text-amber-900 hover:bg-amber-200/60"
+              onClick={popImpersonation}
+            >
+              Salir 1 nivel
+            </Button>
+            {impersonationStack.length > 1 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-xs text-amber-900 hover:bg-amber-200/60"
+                onClick={clearImpersonation}
+              >
+                Volver al Owner
+              </Button>
+            )}
+          </div>
+        )}
         <Outlet />
       </main>
     </div>
