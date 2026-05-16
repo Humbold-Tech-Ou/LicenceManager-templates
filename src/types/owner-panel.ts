@@ -1,7 +1,8 @@
 export type ResellerRole = "owner" | "reseller" | "sub";
 export type ResellerStatus = "active" | "suspended";
 export type LineStatus = "active" | "expired" | "suspended";
-export type ServerProtocol = "http" | "https" | "rtmp";
+export type ServerProtocol = "http" | "https" | "rtmp" | "ssh";
+export type SshAuthMethod = "password" | "key";
 export type ServerType = "live" | "vod" | "hybrid";
 export type VodType = "movie" | "series";
 
@@ -69,6 +70,9 @@ export interface Server {
   status: string;
   geo_countries: string[] | null;
   isp_whitelist: string[] | null;
+  ssh_username: string | null;
+  ssh_auth_method: SshAuthMethod | null;
+  ssh_secret_id: string | null;
   created_at: string;
 }
 
