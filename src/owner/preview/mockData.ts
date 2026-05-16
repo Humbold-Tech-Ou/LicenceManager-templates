@@ -1,6 +1,6 @@
 // Preview-only mock data — injected via installPreviewClient in PreviewProvider
 import type {
-  Reseller, Package, Line, Server, VodItem,
+  Reseller, Package, Line, Server, Stream, VodItem,
 } from "@/types/owner-panel";
 
 const now = new Date();
@@ -46,6 +46,15 @@ export const mockPackages: Package[] = [
   { id: "p-3m",   name: "3 meses",  duration_hours: 2160, credits_cost: 3, is_demo: false, active: true, created_at: iso(-120) },
   { id: "p-6m",   name: "6 meses",  duration_hours: 4320, credits_cost: 5, is_demo: false, active: true, created_at: iso(-120) },
   { id: "p-12m",  name: "12 meses", duration_hours: 8760, credits_cost: 9, is_demo: false, active: true, created_at: iso(-120) },
+];
+
+export const mockStreams: Stream[] = [
+  { id: "st-1", server_id: "s-1", name: "CNN International",   category: "Noticias",  stream_url: "http://185.243.10.20:8080/live/cnn/index.m3u8",       stream_type: "hls",  epg_id: "CNN.us",      logo_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b2/CNN.svg/320px-CNN.svg.png",                    active: true,  sort_order: 1,  created_at: iso(-100) },
+  { id: "st-2", server_id: "s-1", name: "ESPN",                category: "Deportes",  stream_url: "http://185.243.10.20:8080/live/espn/index.m3u8",       stream_type: "hls",  epg_id: "ESPN.us",     logo_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/ESPN_wordmark.svg/320px-ESPN_wordmark.svg.png", active: true,  sort_order: 2,  created_at: iso(-100) },
+  { id: "st-3", server_id: "s-1", name: "Fox Sports",          category: "Deportes",  stream_url: "rtmp://185.243.10.20/live/foxsports",                  stream_type: "rtmp", epg_id: "FoxSports.us", logo_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/76/Fox_Sports_logo.svg/320px-Fox_Sports_logo.svg.png", active: true,  sort_order: 3,  created_at: iso(-90) },
+  { id: "st-4", server_id: "s-1", name: "National Geographic", category: "Documentales", stream_url: "http://185.243.10.20:8080/live/natgeo/stream.ts",   stream_type: "ts",   epg_id: "NatGeo.us",   logo_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8b/National_Geographic_logo.svg/220px-National_Geographic_logo.svg.png", active: true, sort_order: 4, created_at: iso(-80) },
+  { id: "st-5", server_id: "s-1", name: "HBO",                 category: "Premium",   stream_url: "http://185.243.10.20:8080/live/hbo/index.m3u8",        stream_type: "hls",  epg_id: "HBO.us",      logo_url: "https://upload.wikimedia.org/wikipedia/commons/thumb/d/de/HBO_logo.svg/320px-HBO_logo.svg.png",            active: true,  sort_order: 5,  created_at: iso(-70) },
+  { id: "st-6", server_id: "s-1", name: "Canal de Prueba",     category: "Test",      stream_url: "http://185.243.10.20:8080/live/test/index.m3u8",       stream_type: "hls",  epg_id: null,          logo_url: null,                                                                                                       active: false, sort_order: 99, created_at: iso(-10) },
 ];
 
 export const mockServers: Server[] = [
@@ -160,6 +169,7 @@ export const mockPanelConfig: { key: string; value: unknown }[] = [
   { key: "branding",      value: { name: "Mi Panel IPTV (Demo)", primary_color: "#7C3AED" } },
   { key: "demo_policy",   value: { global_monthly_limit: 50 } },
   { key: "network_depth", value: { max_levels: 3 } },
+  { key: "features",      value: { vod: true, streams: true, demos: true, resellers: true, custom_packages: true } },
 ];
 
 export const mockActiveConnections = [
