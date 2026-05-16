@@ -41,11 +41,11 @@ export const mockResellers: Reseller[] = [
 ];
 
 export const mockPackages: Package[] = [
-  { id: "p-demo", name: "Demo 24h", duration_hours: 24,   credits_cost: 0, is_demo: true,  active: true, created_at: iso(-120) },
-  { id: "p-1m",   name: "1 mes",    duration_hours: 720,  credits_cost: 1, is_demo: false, active: true, created_at: iso(-120) },
-  { id: "p-3m",   name: "3 meses",  duration_hours: 2160, credits_cost: 3, is_demo: false, active: true, created_at: iso(-120) },
-  { id: "p-6m",   name: "6 meses",  duration_hours: 4320, credits_cost: 5, is_demo: false, active: true, created_at: iso(-120) },
-  { id: "p-12m",  name: "12 meses", duration_hours: 8760, credits_cost: 9, is_demo: false, active: true, created_at: iso(-120) },
+  { id: "p-demo", name: "Demo 24h", duration_hours: 24,   credits_cost: 0, is_demo: true,  active: true, bouquet_id: null, output_formats: ["m3u8","ts"], created_at: iso(-120) },
+  { id: "p-1m",   name: "1 mes",    duration_hours: 720,  credits_cost: 1, is_demo: false, active: true, bouquet_id: null, output_formats: ["m3u8","ts"], created_at: iso(-120) },
+  { id: "p-3m",   name: "3 meses",  duration_hours: 2160, credits_cost: 3, is_demo: false, active: true, bouquet_id: null, output_formats: ["m3u8","ts","rtmp"], created_at: iso(-120) },
+  { id: "p-6m",   name: "6 meses",  duration_hours: 4320, credits_cost: 5, is_demo: false, active: true, bouquet_id: null, output_formats: ["m3u8","ts","rtmp"], created_at: iso(-120) },
+  { id: "p-12m",  name: "12 meses", duration_hours: 8760, credits_cost: 9, is_demo: false, active: true, bouquet_id: null, output_formats: ["m3u8","ts","rtmp"], created_at: iso(-120) },
 ];
 
 export const mockStreams: Stream[] = [
@@ -58,9 +58,9 @@ export const mockStreams: Stream[] = [
 ];
 
 export const mockServers: Server[] = [
-  { id: "s-1", name: "Servidor Principal", ip: "185.243.10.20", port: 8080, protocol: "http",  type: "hybrid", status: "active",   created_at: iso(-200) },
-  { id: "s-2", name: "Servidor VOD",       ip: "185.243.10.21", port: 80,   protocol: "https", type: "vod",    status: "active",   created_at: iso(-200) },
-  { id: "s-3", name: "Servidor Backup",    ip: "185.243.10.22", port: 8080, protocol: "http",  type: "live",   status: "inactive", created_at: iso(-100) },
+  { id: "s-1", name: "Servidor Principal", ip: "185.243.10.20", port: 8080, protocol: "http",  type: "hybrid", status: "active",   geo_countries: ["VE","CO","MX"], isp_whitelist: null, created_at: iso(-200) },
+  { id: "s-2", name: "Servidor VOD",       ip: "185.243.10.21", port: 80,   protocol: "https", type: "vod",    status: "active",   geo_countries: null, isp_whitelist: null, created_at: iso(-200) },
+  { id: "s-3", name: "Servidor Backup",    ip: "185.243.10.22", port: 8080, protocol: "http",  type: "live",   status: "inactive", geo_countries: null, isp_whitelist: ["CANTV"], created_at: iso(-100) },
 ];
 
 const mkLine = (i: number, status: Line["status"], pkgId: string, resellerId: string | null, days: number): Line => {
@@ -76,6 +76,8 @@ const mkLine = (i: number, status: Line["status"], pkgId: string, resellerId: st
     expires_at: iso(days),
     max_connections: 1,
     notes: null,
+    reseller_notes: null,
+    allowed_outputs: ["m3u8", "ts"],
     created_at: iso(-Math.abs(days) - 5),
     reseller: resellerId ? { id: resellerId, name: mockResellers.find(r=>r.id===resellerId)?.name ?? "—" } : undefined,
     package: { id: pkgId, name: pkg?.name ?? "—", duration_hours: pkg?.duration_hours ?? 0 },
