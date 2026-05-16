@@ -342,7 +342,7 @@ function TreeNodeRow({
 export default function Resellers() {
   const { reseller: me } = useOwnerAuth();
   const config = useOwnerConfig();
-  const { isImpersonationMode, setImpersonatedReseller } = useCascadingImpersonation();
+  const { setImpersonatedReseller } = useCascadingImpersonation();
   const [resellers, setResellers] = useState<Reseller[]>([]);
   const [lines, setLines] = useState<Pick<Line, "id" | "reseller_id">[]>([]);
   const [loading, setLoading] = useState(true);
@@ -757,7 +757,7 @@ export default function Resellers() {
                   onEdit={openEdit}
                   onToggleStatus={toggleStatus}
                   onDelete={(r) => { setDeleteTarget(r); setDeleteConfirm(true); }}
-                  onImpersonate={isImpersonationMode ? setImpersonatedReseller : undefined}
+                  onImpersonate={setImpersonatedReseller}
                   meId={me.id}
                 />
               );
@@ -842,14 +842,10 @@ export default function Resellers() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        {isImpersonationMode && (
-                          <>
-                            <DropdownMenuItem onClick={() => setImpersonatedReseller(r)}>
-                              <Eye className="size-3.5 mr-2" /> Ver como este reseller
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                          </>
-                        )}
+                        <DropdownMenuItem onClick={() => setImpersonatedReseller(r)}>
+                          <Eye className="size-3.5 mr-2" /> Ver como este reseller
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={() => openCredits(r)}>
                           <CreditCard className="size-3.5 mr-2" /> Asignar créditos
                         </DropdownMenuItem>
