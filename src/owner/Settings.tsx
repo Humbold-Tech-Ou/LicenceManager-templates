@@ -171,7 +171,7 @@ export default function Settings() {
   const creditsAvailable = reseller ? reseller.credits_total - reseller.credits_used : 0;
 
   return (
-    <div className="p-6 space-y-5 max-w-2xl">
+    <div className="p-4 md:p-6 space-y-5 max-w-2xl mx-auto">
       <h1 className="text-lg font-semibold text-foreground">Configuración</h1>
 
       {/* ── Mi cuenta ── */}
