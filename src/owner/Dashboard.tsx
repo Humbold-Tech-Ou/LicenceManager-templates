@@ -124,7 +124,7 @@ export default function OwnerDashboard() {
   const demosLimit       = reseller?.demos_limit      ?? 50;
 
   return (
-    <div className="p-6 space-y-6 max-w-5xl">
+    <div className="p-4 md:p-6 space-y-6">
       <h1 className="text-lg font-semibold text-foreground">Dashboard</h1>
 
       {/* ── Stat cards ── */}
