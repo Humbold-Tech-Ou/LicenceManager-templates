@@ -707,7 +707,7 @@ export default function VOD() {
   // ─────────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-6 space-y-4 max-w-6xl">
+    <div className="p-4 md:p-6 space-y-4">
 
       {/* ── Header ── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
