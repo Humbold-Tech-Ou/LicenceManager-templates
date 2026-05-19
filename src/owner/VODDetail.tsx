@@ -208,7 +208,7 @@ export default function VODDetail() {
 
   if (loading) {
     return (
-      <div className="p-6 max-w-4xl space-y-4">
+      <div className="p-4 md:p-6 space-y-4">
         <Skeleton className="h-5 w-32" />
         <div className="flex gap-4">
           <Skeleton className="h-36 w-24 rounded-lg shrink-0" />
@@ -233,7 +233,7 @@ export default function VODDetail() {
   // ─────────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="p-6 max-w-4xl space-y-5">
+    <div className="p-4 md:p-6 space-y-5">
 
       {/* ── Back + header ── */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
