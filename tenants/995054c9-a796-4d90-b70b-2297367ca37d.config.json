@@ -1,0 +1,13 @@
+{
+  "tenant_token": "db44915f-f038-48",
+  "supabase_url": "https://yyeefcwwtdlobdlvdbbq.supabase.co",
+  "plan": "basic",
+  "brand": {
+    "company_name": "Marcos Martinez",
+    "logo_url": null,
+    "primary_color": "#7c3aed",
+    "favicon_url": null
+  },
+  "generated_at": "2026-05-22T17:53:31.826Z",
+  "version": "v1.0.3"
+}
