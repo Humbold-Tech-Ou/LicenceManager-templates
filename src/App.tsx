@@ -57,11 +57,11 @@ const App = () => (
         <AuthProvider>
           <OwnerAuthProvider>
             <Routes>
-              <Route path="/login" element={<Navigate to="/owner/login" replace />} />
+              <Route path="/login" element={<Login />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
               <Route path="/reset-password" element={<ResetPassword />} />
               {/* Tenant panels land on /owner/login; super admin panel lands on /dashboard */}
-              <Route path="/" element={<Navigate to="/owner/login" replace />} />
+              <Route path="/" element={<Navigate to={IS_TENANT_PANEL ? "/owner/login" : "/dashboard"} replace />} />
               {/* Super admin routes */}
               <Route element={<ProtectedRoute requireAdmin><AppLayout /></ProtectedRoute>}>
                 <Route path="/dashboard" element={<Dashboard />} />
@@ -83,7 +83,7 @@ const App = () => (
               {/* Owner panel routes — separate Supabase auth */}
               <Route path="/owner/login" element={<OwnerLogin />} />
               <Route path="/owner" element={<OwnerProtectedRoute />}>
-                <Route element={<OwnerLayout />}>
+                <Route element={<CascadingImpersonationProvider><OwnerLayout /></CascadingImpersonationProvider>}>
                   <Route index element={<Navigate to="/owner/dashboard" replace />} />
                   <Route path="dashboard" element={<OwnerDashboard />} />
                   <Route path="resellers" element={<OwnerResellers />} />
