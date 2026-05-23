@@ -397,24 +397,22 @@ export default function Lines() {
     return `http://${srv.ip}:${srv.port}/get.php?username=${line.username}&password=${line.password}&type=m3u_plus`;
   }
 
-  /** Returns the credential URLs (edge or legacy server) */
   function getCredentialUrls(line: Line) {
     if (edgeActive) {
       const base = edgeCfg!.base_url;
-      return {
-        m3u:   `${base}/get.php?username=${line.username}&password=${line.password}&type=m3u_plus`,
-        epg:   `${base}/xmltv.php?username=${line.username}&password=${line.password}`,
-        api:   `${base}/player_api.php?username=${line.username}&password=${line.password}`,
-      };
+      return [
+        { label: "M3U Plus", value: `${base}/get.php?username=${line.username}&password=${line.password}&type=m3u_plus` },
+        { label: "EPG", value: `${base}/xmltv.php?username=${line.username}&password=${line.password}` },
+        { label: "Xtream API", value: `${base}/player_api.php?username=${line.username}&password=${line.password}` },
+      ];
     }
     const srv = servers[0];
-    if (!srv) return null;
-    const base = `http://${srv.ip}:${srv.port}`;
-    return {
-      m3u: `${base}/get.php?username=${line.username}&password=${line.password}&type=m3u_plus`,
-      epg: `${base}/xmltv.php?username=${line.username}&password=${line.password}`,
-      api: `${base}/player_api.php?username=${line.username}&password=${line.password}`,
-    };
+    if (!srv) return [];
+    return [
+      { label: "M3U Plus", value: `http://${srv.ip}:${srv.port}/get.php?username=${line.username}&password=${line.password}&type=m3u_plus` },
+      { label: "EPG", value: `http://${srv.ip}:${srv.port}/xmltv.php?username=${line.username}&password=${line.password}` },
+      { label: "Xtream API", value: `http://${srv.ip}:${srv.port}/player_api.php?username=${line.username}&password=${line.password}` },
+    ];
   }
 
   // ── Filtered list ───────────────────────────────────────────────────────────
@@ -821,47 +819,43 @@ export default function Lines() {
           <DialogHeader>
             <DialogTitle>Credenciales — {credModal?.username}</DialogTitle>
           </DialogHeader>
-          {credModal && (() => {
-            const urls = getCredentialUrls(credModal);
-            if (!urls) {
-              return (
-                <p className="text-sm text-muted-foreground">
-                  No hay servidores configurados. Ve a Servidores para agregar uno.
-                </p>
-              );
-            }
-            return (
-              <div className="space-y-3 text-sm">
-                {edgeActive && (
-                  <div className="flex items-center gap-2 rounded-lg bg-violet-50 dark:bg-violet-950/30 px-3 py-2">
-                    <Zap className="size-4 text-violet-600" />
-                    <div>
-                      <p className="text-xs font-medium text-violet-700 dark:text-violet-300">Distribucion Edge activa</p>
-                      <p className="text-[11px] text-violet-600/70 dark:text-violet-400/70">URLs optimizadas para apps IPTV (TiviMate, Smarters, etc.)</p>
-                    </div>
+          {credModal && (edgeActive || servers[0]) ? (
+            <div className="space-y-3 text-sm">
+              {edgeActive && (
+                <div className="flex items-center gap-2 rounded-lg bg-violet-50 border border-violet-200 px-3 py-2">
+                  <Zap className="size-4 text-violet-600 shrink-0" />
+                  <p className="text-xs text-violet-700 font-medium">
+                    Distribucion Edge activa — URLs optimizadas y seguras
+                  </p>
+                </div>
+              )}
+              {getCredentialUrls(credModal).map(({ label, value }) => (
+                <div key={label} className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                  <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2">
+                    <code className="flex-1 text-xs break-all">{value}</code>
+                    <button onClick={() => copyText(value, label)}
+                      className="shrink-0 text-muted-foreground hover:text-foreground">
+                      {copied === label
+                        ? <Check className="size-3.5 text-green-600" />
+                        : <Copy className="size-3.5" />}
+                    </button>
                   </div>
-                )}
-                {[
-                  { label: "M3U Plus",   value: urls.m3u },
-                  { label: "EPG",        value: urls.epg },
-                  { label: "Xtream API", value: urls.api },
-                ].map(({ label, value }) => (
-                  <div key={label} className="space-y-1">
-                    <p className="text-xs font-medium text-muted-foreground">{label}</p>
-                    <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2">
-                      <code className="flex-1 text-xs break-all">{value}</code>
-                      <button onClick={() => copyText(value, label)}
-                        className="shrink-0 text-muted-foreground hover:text-foreground">
-                        {copied === label
-                          ? <Check className="size-3.5 text-green-600" />
-                          : <Copy className="size-3.5" />}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            );
-          })()}
+                </div>
+              ))}
+              {edgeActive && (
+                <div className="rounded-lg bg-muted/50 px-3 py-2">
+                  <p className="text-[11px] text-muted-foreground">
+                    Usa estas URLs en apps IPTV como TiviMate, Smarters, XCIPTV o cualquier reproductor compatible con Xtream Codes.
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No hay servidores configurados. Ve a Servidores para agregar uno.
+            </p>
+          )}
         </DialogContent>
       </Dialog>
 
