@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useOwnerAuth, useOwnerConfig, useCascadingImpersonation } from "@/hooks/useOwnerPanel";
+import { useUpdateChecker } from "@/hooks/useUpdateChecker";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState, useCallback } from "react";
 import {
@@ -21,6 +22,7 @@ import {
   ChevronRight,
   FolderOpen,
   Activity,
+  ArrowUpCircle,
 } from "lucide-react";
 
 const NAV_ALL = [
@@ -157,6 +159,7 @@ export default function OwnerLayout() {
   const config = useOwnerConfig();
   const navigate = useNavigate();
   const { impersonationStack, popImpersonation, clearImpersonation } = useCascadingImpersonation();
+  const { updateAvailable, applyUpdate } = useUpdateChecker();
   const primaryColor = config.branding?.primary_color || "#7C3AED";
   const features = config.features;
   const isMobile = useIsMobile();
@@ -331,6 +334,37 @@ export default function OwnerLayout() {
             <p className="text-lg font-bold" style={{ color: primaryColor }}>
               {(reseller.credits_total - reseller.credits_used).toLocaleString()}
             </p>
+          </div>
+        )}
+
+        {/* Update notification bubble */}
+        {updateAvailable && !effectiveCollapsed && (
+          <div className="px-3 pb-2">
+            <button
+              onClick={applyUpdate}
+              className="w-full flex items-center gap-2.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-left transition-colors hover:bg-blue-100 group"
+            >
+              <div className="relative shrink-0">
+                <ArrowUpCircle className="size-4 text-blue-600" />
+                <span className="absolute -top-1 -right-1 size-2 rounded-full bg-blue-500 animate-pulse" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-blue-900">Actualización disponible</p>
+                <p className="text-[10px] text-blue-600">Clic para actualizar</p>
+              </div>
+            </button>
+          </div>
+        )}
+        {updateAvailable && effectiveCollapsed && (
+          <div className="px-2 pb-2">
+            <button
+              onClick={applyUpdate}
+              title="Actualización disponible — clic para actualizar"
+              className="w-full flex justify-center p-2 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 transition-colors relative"
+            >
+              <ArrowUpCircle className="size-4 text-blue-600" />
+              <span className="absolute top-0.5 right-0.5 size-2 rounded-full bg-blue-500 animate-pulse" />
+            </button>
           </div>
         )}
 
