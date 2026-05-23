@@ -137,6 +137,12 @@ export interface PanelFeatures {
   custom_packages: boolean;
 }
 
+export interface EdgeConfig {
+  enabled: boolean;
+  base_url: string;
+  updated_at?: string;
+}
+
 export interface PanelConfig {
   branding: {
     name: string;
@@ -147,6 +153,7 @@ export interface PanelConfig {
   demo_policy: { global_monthly_limit: number };
   network_depth: { max_levels: number | null };
   features: PanelFeatures;
+  edge_config?: EdgeConfig;
 }
 
 export interface ActiveConnection {

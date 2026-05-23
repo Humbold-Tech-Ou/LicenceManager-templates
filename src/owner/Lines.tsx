@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ownerSupabase, useOwnerAuth } from "@/hooks/useOwnerPanel";
+import { ownerSupabase, useOwnerAuth, useOwnerConfig } from "@/hooks/useOwnerPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Loader2, MoreHorizontal, Plus, Eye, EyeOff, Copy, Check,
-  RefreshCw, Pencil, Trash2, Activity,
+  RefreshCw, Pencil, Trash2, Activity, Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format, differenceInDays, isPast, formatDistanceToNowStrict } from "date-fns";
@@ -96,6 +96,10 @@ function StatusBadge({ status }: { status: LineStatus }) {
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Lines() {
   const { reseller: me } = useOwnerAuth();
+  const config = useOwnerConfig();
+  const edgeCfg = config.edge_config;
+  const edgeActive = !!edgeCfg?.enabled && !!edgeCfg?.base_url;
+
   const [lines, setLines] = useState<Line[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
   const [resellers, setResellers] = useState<Reseller[]>([]);
@@ -385,9 +389,32 @@ export default function Lines() {
   }
 
   function getM3U(line: Line) {
+    if (edgeActive) {
+      return `${edgeCfg!.base_url}/get.php?username=${line.username}&password=${line.password}&type=m3u_plus`;
+    }
     const srv = servers[0];
     if (!srv) return "";
     return `http://${srv.ip}:${srv.port}/get.php?username=${line.username}&password=${line.password}&type=m3u_plus`;
+  }
+
+  /** Returns the credential URLs (edge or legacy server) */
+  function getCredentialUrls(line: Line) {
+    if (edgeActive) {
+      const base = edgeCfg!.base_url;
+      return {
+        m3u:   `${base}/get.php?username=${line.username}&password=${line.password}&type=m3u_plus`,
+        epg:   `${base}/xmltv.php?username=${line.username}&password=${line.password}`,
+        api:   `${base}/player_api.php?username=${line.username}&password=${line.password}`,
+      };
+    }
+    const srv = servers[0];
+    if (!srv) return null;
+    const base = `http://${srv.ip}:${srv.port}`;
+    return {
+      m3u: `${base}/get.php?username=${line.username}&password=${line.password}&type=m3u_plus`,
+      epg: `${base}/xmltv.php?username=${line.username}&password=${line.password}`,
+      api: `${base}/player_api.php?username=${line.username}&password=${line.password}`,
+    };
   }
 
   // ── Filtered list ───────────────────────────────────────────────────────────
@@ -794,32 +821,47 @@ export default function Lines() {
           <DialogHeader>
             <DialogTitle>Credenciales — {credModal?.username}</DialogTitle>
           </DialogHeader>
-          {credModal && servers[0] ? (
-            <div className="space-y-3 text-sm">
-              {[
-                { label: "M3U Plus",   value: `http://${servers[0].ip}:${servers[0].port}/get.php?username=${credModal.username}&password=${credModal.password}&type=m3u_plus` },
-                { label: "EPG",        value: `http://${servers[0].ip}:${servers[0].port}/xmltv.php?username=${credModal.username}&password=${credModal.password}` },
-                { label: "Xtream API", value: `http://${servers[0].ip}:${servers[0].port}/player_api.php?username=${credModal.username}&password=${credModal.password}` },
-              ].map(({ label, value }) => (
-                <div key={label} className="space-y-1">
-                  <p className="text-xs font-medium text-muted-foreground">{label}</p>
-                  <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2">
-                    <code className="flex-1 text-xs break-all">{value}</code>
-                    <button onClick={() => copyText(value, label)}
-                      className="shrink-0 text-muted-foreground hover:text-foreground">
-                      {copied === label
-                        ? <Check className="size-3.5 text-green-600" />
-                        : <Copy className="size-3.5" />}
-                    </button>
+          {credModal && (() => {
+            const urls = getCredentialUrls(credModal);
+            if (!urls) {
+              return (
+                <p className="text-sm text-muted-foreground">
+                  No hay servidores configurados. Ve a Servidores para agregar uno.
+                </p>
+              );
+            }
+            return (
+              <div className="space-y-3 text-sm">
+                {edgeActive && (
+                  <div className="flex items-center gap-2 rounded-lg bg-violet-50 dark:bg-violet-950/30 px-3 py-2">
+                    <Zap className="size-4 text-violet-600" />
+                    <div>
+                      <p className="text-xs font-medium text-violet-700 dark:text-violet-300">Distribucion Edge activa</p>
+                      <p className="text-[11px] text-violet-600/70 dark:text-violet-400/70">URLs optimizadas para apps IPTV (TiviMate, Smarters, etc.)</p>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              No hay servidores configurados. Ve a Servidores para agregar uno.
-            </p>
-          )}
+                )}
+                {[
+                  { label: "M3U Plus",   value: urls.m3u },
+                  { label: "EPG",        value: urls.epg },
+                  { label: "Xtream API", value: urls.api },
+                ].map(({ label, value }) => (
+                  <div key={label} className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                    <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2">
+                      <code className="flex-1 text-xs break-all">{value}</code>
+                      <button onClick={() => copyText(value, label)}
+                        className="shrink-0 text-muted-foreground hover:text-foreground">
+                        {copied === label
+                          ? <Check className="size-3.5 text-green-600" />
+                          : <Copy className="size-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
