@@ -35,6 +35,7 @@ import OwnerVOD from "@/owner/VOD";
 import OwnerVODDetail from "@/owner/VODDetail";
 import OwnerTickets from "@/owner/Tickets";
 import OwnerLibrary from "@/owner/Library";
+import OwnerServerStats from "@/owner/ServerStats";
 import OwnerSettings from "@/owner/Settings";
 // Owner preview — only included when VITE_OWNER_SUPABASE_URL is NOT set (i.e. not a tenant build)
 import { PreviewProvider } from "@/owner/preview/PreviewProvider";
@@ -79,6 +80,7 @@ const App = () => (
                   <Route path="lines" element={<OwnerLines />} />
                   <Route path="packages" element={<OwnerPackages />} />
                   <Route path="servers" element={<OwnerServers />} />
+                  <Route path="server-stats" element={<OwnerServerStats />} />
                   <Route path="streams" element={<OwnerStreams />} />
                   <Route path="bouquets" element={<OwnerBouquets />} />
                   <Route path="epg" element={<OwnerEPG />} />
@@ -102,6 +104,7 @@ const App = () => (
                     <Route path="resellers" element={<OwnerResellers />} />
                     <Route path="packages"  element={<OwnerPackages />} />
                     <Route path="servers"   element={<OwnerServers />} />
+                    <Route path="server-stats" element={<OwnerServerStats />} />
                     <Route path="streams"   element={<OwnerStreams />} />
                     <Route path="bouquets"  element={<OwnerBouquets />} />
                     <Route path="epg"       element={<OwnerEPG />} />
