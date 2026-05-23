@@ -11,6 +11,9 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -19,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import {
   Loader2, Plus, Search, Radio, MoreHorizontal, X, Tv2,
-  ScanSearch, Copy, Check, Wifi, Zap, Upload,
+  ScanSearch, Copy, Check, Wifi, Zap, Upload, AlertTriangle, FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -345,13 +348,23 @@ export default function Streams() {
     });
   }
 
-  // ── M3U Import ──
+  // ── M3U Import (with preview + duplicate detection) ──
   const [importingM3u, setImportingM3u] = useState(false);
+  const [m3uDialogOpen, setM3uDialogOpen] = useState(false);
+  const [m3uPreview, setM3uPreview] = useState<{
+    entries: { name: string; url: string; logo: string; category: string; epg: string }[];
+    duplicates: Set<string>;
+    categories: string[];
+    fileName: string;
+  } | null>(null);
+  const [m3uServerId, setM3uServerId] = useState<string>("");
+  const [m3uSkipDuplicates, setM3uSkipDuplicates] = useState(true);
 
-  async function handleM3uImport(file: File) {
-    setImportingM3u(true);
-    try {
-      const text = await file.text();
+  /** Step 1: Parse M3U and open preview dialog */
+  function handleM3uParse(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = reader.result as string;
       const lines = text.split("\n");
       const entries: { name: string; url: string; logo: string; category: string; epg: string }[] = [];
       let cur: Partial<typeof entries[0]> = {};
@@ -359,7 +372,6 @@ export default function Streams() {
       for (const line of lines) {
         const trimmed = line.trim();
         if (trimmed.startsWith("#EXTINF")) {
-          // Parse #EXTINF line
           const logoMatch = trimmed.match(/tvg-logo="([^"]*)"/);
           const groupMatch = trimmed.match(/group-title="([^"]*)"/);
           const epgMatch = trimmed.match(/tvg-id="([^"]*)"/);
@@ -381,20 +393,54 @@ export default function Streams() {
         return;
       }
 
-      const payload = entries.map((e, i) => ({
+      // Detect duplicates by stream_url
+      const existingUrls = new Set(streams.map((s) => s.stream_url));
+      const duplicates = new Set(entries.filter((e) => existingUrls.has(e.url)).map((e) => e.url));
+
+      // Unique categories from parsed entries
+      const cats = Array.from(new Set(entries.map((e) => e.category).filter(Boolean))).sort();
+
+      setM3uPreview({ entries, duplicates, categories: cats, fileName: file.name });
+      setM3uServerId("");
+      setM3uSkipDuplicates(true);
+      setM3uDialogOpen(true);
+    };
+    reader.readAsText(file);
+  }
+
+  /** Step 2: Import confirmed entries */
+  async function handleM3uConfirmImport() {
+    if (!m3uPreview) return;
+    setImportingM3u(true);
+    try {
+      let toInsert = m3uPreview.entries;
+      if (m3uSkipDuplicates && m3uPreview.duplicates.size > 0) {
+        toInsert = toInsert.filter((e) => !m3uPreview.duplicates.has(e.url));
+      }
+
+      if (toInsert.length === 0) {
+        toast.info("Todos los canales ya existen. Nada que importar.");
+        setM3uDialogOpen(false);
+        return;
+      }
+
+      const payload = toInsert.map((e, i) => ({
         name: e.name,
         stream_url: e.url,
         stream_type: e.url.includes(".m3u8") ? "hls" : e.url.startsWith("rtmp://") ? "rtmp" : "ts",
         logo_url: e.logo || null,
         category: e.category || null,
         epg_id: e.epg || null,
+        server_id: m3uServerId || null,
         sort_order: streams.length + i + 1,
         active: true,
       }));
 
       const { error } = await ownerSupabase.from("streams").insert(payload);
       if (error) throw error;
-      toast.success(`${entries.length} canales importados desde M3U`);
+      toast.success(`${toInsert.length} canales importados desde M3U`);
+      setM3uDialogOpen(false);
+      setM3uPreview(null);
       loadAll();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "Error importando M3U");
@@ -427,7 +473,7 @@ export default function Streams() {
               {importingM3u ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
               Importar M3U
               <input type="file" accept=".m3u,.m3u8" className="hidden"
-                onChange={e => { const f = e.target.files?.[0]; if (f) handleM3uImport(f); e.target.value = ""; }} />
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleM3uParse(f); e.target.value = ""; }} />
             </label>
           </Button>
           <Button size="sm" onClick={openAdd} className="bg-violet-600 hover:bg-violet-700 gap-1.5">
@@ -802,6 +848,172 @@ export default function Streams() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* ── M3U Preview Dialog ── */}
+      <Dialog open={m3uDialogOpen} onOpenChange={(o) => { if (!importingM3u) setM3uDialogOpen(o); }}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="size-5 text-violet-600" />
+              Vista previa de importación M3U
+            </DialogTitle>
+            <DialogDescription>
+              {m3uPreview?.fileName ?? "archivo.m3u"} — Revisa los canales antes de importarlos.
+            </DialogDescription>
+          </DialogHeader>
+
+          {m3uPreview && (
+            <div className="space-y-4 py-2">
+              {/* Summary stats */}
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <span className="flex items-center gap-1.5 rounded-lg bg-violet-50 px-3 py-1.5 font-medium text-violet-700">
+                  <Radio className="size-4" />
+                  {m3uPreview.entries.length} canales
+                </span>
+                <span className="text-muted-foreground">
+                  {m3uPreview.categories.length} categoría{m3uPreview.categories.length !== 1 ? "s" : ""}
+                </span>
+                {m3uPreview.duplicates.size > 0 && (
+                  <span className="flex items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-1.5 font-medium text-amber-700">
+                    <AlertTriangle className="size-4" />
+                    {m3uPreview.duplicates.size} duplicado{m3uPreview.duplicates.size !== 1 ? "s" : ""}
+                  </span>
+                )}
+              </div>
+
+              {/* Duplicate handling toggle */}
+              {m3uPreview.duplicates.size > 0 && (
+                <div className="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+                  <AlertTriangle className="size-4 text-amber-600 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-amber-800">
+                      {m3uPreview.duplicates.size} canal{m3uPreview.duplicates.size !== 1 ? "es ya existen" : " ya existe"} (misma URL)
+                    </p>
+                    <p className="text-xs text-amber-600 mt-0.5">
+                      {m3uSkipDuplicates
+                        ? `Se importarán ${m3uPreview.entries.length - m3uPreview.duplicates.size} canales nuevos.`
+                        : `Se importarán todos (${m3uPreview.entries.length}), incluyendo duplicados.`}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant={m3uSkipDuplicates ? "default" : "outline"}
+                    onClick={() => setM3uSkipDuplicates((v) => !v)}
+                    className={m3uSkipDuplicates ? "bg-amber-600 hover:bg-amber-700 text-xs" : "text-xs"}
+                  >
+                    {m3uSkipDuplicates ? "Omitir duplicados" : "Incluir duplicados"}
+                  </Button>
+                </div>
+              )}
+
+              {/* Server assignment */}
+              <div className="space-y-1.5">
+                <Label className="text-xs">Asignar servidor a todos los canales (opcional)</Label>
+                <Select value={m3uServerId || "__none__"} onValueChange={(v) => setM3uServerId(v === "__none__" ? "" : v)}>
+                  <SelectTrigger className="text-sm">
+                    <SelectValue placeholder="— Sin servidor —" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">— Sin servidor —</SelectItem>
+                    {servers.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Preview table */}
+              <div className="rounded-lg border border-border overflow-hidden">
+                <div className="max-h-60 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/40 sticky top-0">
+                      <tr className="text-left text-muted-foreground">
+                        <th className="px-3 py-2 font-medium w-8">#</th>
+                        <th className="px-3 py-2 font-medium">Canal</th>
+                        <th className="px-3 py-2 font-medium">Tipo</th>
+                        <th className="px-3 py-2 font-medium">Categoría</th>
+                        <th className="px-3 py-2 font-medium w-16">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {m3uPreview.entries.slice(0, 100).map((e, i) => {
+                        const isDup = m3uPreview.duplicates.has(e.url);
+                        const type = e.url.includes(".m3u8") ? "HLS" : e.url.startsWith("rtmp://") ? "RTMP" : "TS";
+                        return (
+                          <tr
+                            key={i}
+                            className={cn(
+                              "transition-colors",
+                              isDup && m3uSkipDuplicates ? "opacity-40 bg-amber-50/50" : "hover:bg-muted/20"
+                            )}
+                          >
+                            <td className="px-3 py-1.5 text-muted-foreground">{i + 1}</td>
+                            <td className="px-3 py-1.5">
+                              <div className="flex items-center gap-2">
+                                {e.logo && (
+                                  <img
+                                    src={e.logo}
+                                    alt=""
+                                    className="size-5 rounded object-contain shrink-0"
+                                    onError={(ev) => { (ev.target as HTMLImageElement).style.display = "none"; }}
+                                  />
+                                )}
+                                <span className="font-medium text-foreground truncate max-w-[200px]">{e.name}</span>
+                              </div>
+                            </td>
+                            <td className="px-3 py-1.5">
+                              <span className={cn(
+                                "inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+                                type === "HLS" ? "bg-blue-100 text-blue-700" :
+                                type === "RTMP" ? "bg-orange-100 text-orange-700" :
+                                "bg-violet-100 text-violet-700"
+                              )}>
+                                {type}
+                              </span>
+                            </td>
+                            <td className="px-3 py-1.5 text-muted-foreground">{e.category || "—"}</td>
+                            <td className="px-3 py-1.5">
+                              {isDup ? (
+                                <span className="text-amber-600 font-medium">Dup</span>
+                              ) : (
+                                <span className="text-green-600 font-medium">Nuevo</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {m3uPreview.entries.length > 100 && (
+                  <p className="px-3 py-2 text-xs text-muted-foreground border-t border-border bg-muted/20">
+                    Mostrando 100 de {m3uPreview.entries.length} canales
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setM3uDialogOpen(false)} disabled={importingM3u}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleM3uConfirmImport}
+              disabled={importingM3u || !m3uPreview}
+              className="bg-violet-600 hover:bg-violet-700 gap-2"
+            >
+              {importingM3u && <Loader2 className="size-4 animate-spin" />}
+              Importar{" "}
+              {m3uPreview
+                ? m3uSkipDuplicates
+                  ? `${m3uPreview.entries.length - m3uPreview.duplicates.size} canales`
+                  : `${m3uPreview.entries.length} canales`
+                : ""}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

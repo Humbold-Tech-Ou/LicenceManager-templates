@@ -20,6 +20,7 @@ import {
   Eye,
   ChevronRight,
   FolderOpen,
+  Activity,
 } from "lucide-react";
 
 const NAV_ALL = [
@@ -29,15 +30,22 @@ const NAV_ALL = [
 ];
 
 const NAV_OWNER_BASE = [
-  { to: "/owner/packages", label: "Paquetes",     icon: Package,        flag: "custom_packages" as const },
-  { to: "/owner/servers",  label: "Servidores",   icon: Server,         flag: null },
-  { to: "/owner/library",  label: "Biblioteca",   icon: FolderOpen,     flag: null },
-  { to: "/owner/streams",  label: "Canales Live", icon: Radio,          flag: "streams" as const },
-  { to: "/owner/vod",      label: "VOD",          icon: Film,           flag: "vod" as const },
-  { to: "/owner/bouquets", label: "Bouquets",     icon: ListMusic,      flag: null },
-  { to: "/owner/epg",      label: "EPG",          icon: CalendarDays,   flag: "streams" as const },
-  { to: "/owner/tickets",  label: "Tickets",      icon: MessageSquare,  flag: null },
-  { to: "/owner/settings", label: "Configuración",icon: Settings,       flag: null },
+  { to: "/owner/packages",     label: "Paquetes",     icon: Package,      flag: "custom_packages" as const },
+  { to: "/owner/servers",      label: "Servidores",   icon: Server,       flag: null },
+  { to: "/owner/server-stats", label: "Server Stats", icon: Activity,     flag: null },
+  { to: "/owner/library",      label: "Biblioteca",   icon: FolderOpen,   flag: null },
+  { to: "/owner/streams",      label: "Canales Live", icon: Radio,        flag: "streams" as const },
+  { to: "/owner/vod",          label: "VOD",          icon: Film,         flag: "vod" as const },
+  { to: "/owner/bouquets",     label: "Bouquets",     icon: ListMusic,    flag: null },
+  { to: "/owner/epg",          label: "EPG",          icon: CalendarDays, flag: "streams" as const },
+  { to: "/owner/tickets",      label: "Tickets",      icon: MessageSquare,flag: null },
+  { to: "/owner/settings",     label: "Configuración",icon: Settings,     flag: null },
+];
+
+/** Extra nav for resellers (non-owners) — Tickets + account settings */
+const NAV_RESELLER = [
+  { to: "/owner/tickets",  label: "Tickets",   icon: MessageSquare },
+  { to: "/owner/settings", label: "Mi cuenta", icon: Settings },
 ];
 
 function SidebarLink({
@@ -203,7 +211,7 @@ export default function OwnerLayout() {
   const sidebarWidth = effectiveCollapsed ? "w-14" : "w-[220px]";
 
   return (
-    <div className="flex min-h-screen bg-background" data-owner-panel>
+    <div className="flex h-screen overflow-hidden bg-background" data-owner-panel>
       <BrandingApplier color={primaryColor} />
 
       {/* Mobile backdrop */}
@@ -279,6 +287,31 @@ export default function OwnerLayout() {
                 )}
               </div>
               {NAV_OWNER.map((item) => (
+                <SidebarLink
+                  key={item.to}
+                  {...item}
+                  primaryColor={primaryColor}
+                  collapsed={effectiveCollapsed}
+                  onNavigate={closeMobileSidebar}
+                />
+              ))}
+            </>
+          )}
+
+          {/* Reseller-only: Tickets + Mi cuenta */}
+          {!isOwner && (
+            <>
+              <div className={`pt-3 pb-1 ${effectiveCollapsed ? "px-0 flex justify-center" : "px-3"}`}>
+                {!effectiveCollapsed && (
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">
+                    Soporte
+                  </p>
+                )}
+                {effectiveCollapsed && (
+                  <div className="w-4 border-t border-zinc-300" />
+                )}
+              </div>
+              {NAV_RESELLER.map((item) => (
                 <SidebarLink
                   key={item.to}
                   {...item}

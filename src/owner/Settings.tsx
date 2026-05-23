@@ -168,11 +168,14 @@ export default function Settings() {
     );
   }
 
+  const isOwner = reseller?.role === "owner";
   const creditsAvailable = reseller ? reseller.credits_total - reseller.credits_used : 0;
 
   return (
     <div className="p-4 md:p-6 space-y-5 max-w-2xl mx-auto">
-      <h1 className="text-lg font-semibold text-foreground">Configuración</h1>
+      <h1 className="text-lg font-semibold text-foreground">
+        {isOwner ? "Configuración" : "Mi cuenta"}
+      </h1>
 
       {/* ── Mi cuenta ── */}
       <Section
@@ -233,6 +236,9 @@ export default function Settings() {
           Cambiar contraseña
         </Button>
       </Section>
+
+      {/* ── Owner-only sections ── */}
+      {isOwner && (<>
 
       {/* ── Branding ── */}
       <Section
@@ -375,6 +381,8 @@ export default function Settings() {
           </p>
         </div>
       </Section>
+
+      </>)}
     </div>
   );
 }

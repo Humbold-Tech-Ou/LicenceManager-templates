@@ -116,6 +116,7 @@ export default function OwnerDashboard() {
     );
   }
 
+  const isOwner = reseller?.role === "owner";
   const creditsTotal     = reseller?.credits_total ?? 0;
   const creditsUsed      = reseller?.credits_used  ?? 0;
   const creditsAvailable = creditsTotal - creditsUsed;
@@ -128,7 +129,7 @@ export default function OwnerDashboard() {
       <h1 className="text-lg font-semibold text-foreground">Dashboard</h1>
 
       {/* ── Stat cards ── */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+      <div className={`grid grid-cols-2 gap-4 ${isOwner ? "lg:grid-cols-5" : "lg:grid-cols-3"}`}>
         <StatCard
           label="Líneas activas"
           value={activeLines}
@@ -142,22 +143,26 @@ export default function OwnerDashboard() {
           icon={<Wifi className="size-5" />}
           color="violet"
         />
+        {isOwner && (
+          <StatCard
+            label="Servidores"
+            value={serverCount}
+            sub="activos"
+            icon={<Server className="size-5" />}
+            color="blue"
+          />
+        )}
+        {isOwner && (
+          <StatCard
+            label="Demos este mes"
+            value={demosThisMonth}
+            sub={`/ ${demosLimit} permitidos`}
+            icon={<FlaskConical className="size-5" />}
+            color="orange"
+          />
+        )}
         <StatCard
-          label="Servidores"
-          value={serverCount}
-          sub="activos"
-          icon={<Server className="size-5" />}
-          color="blue"
-        />
-        <StatCard
-          label="Demos este mes"
-          value={demosThisMonth}
-          sub={`/ ${demosLimit} permitidos`}
-          icon={<FlaskConical className="size-5" />}
-          color="orange"
-        />
-        <StatCard
-          label="Resellers"
+          label={isOwner ? "Resellers" : "Sub-resellers"}
           value={resellerCount}
           sub={expiredToday > 0 ? `${expiredToday} línea${expiredToday > 1 ? "s" : ""} exp. hoy` : undefined}
           icon={<Users className="size-5" />}
