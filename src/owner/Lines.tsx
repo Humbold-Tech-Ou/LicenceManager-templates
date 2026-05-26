@@ -371,7 +371,15 @@ export default function Lines() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await ownerSupabase.from("lines").delete().eq("id", deleteTarget.id);
+      // Remove dependent records first to avoid FK constraint errors
+      await ownerSupabase.from("active_connections").delete().eq("line_id", deleteTarget.id);
+      await ownerSupabase.from("line_activity").delete().eq("line_id", deleteTarget.id);
+
+      const { error } = await ownerSupabase.from("lines").delete().eq("id", deleteTarget.id);
+      if (error) {
+        toast.error(`No se pudo eliminar: ${error.message}`);
+        return;
+      }
       toast.success("Línea eliminada");
       setDeleteTarget(null);
       loadAll();
