@@ -431,7 +431,9 @@ export default function OwnerLayout() {
             )}
           </div>
         )}
-        <Outlet />
+        <div className="max-w-screen-2xl mx-auto">
+          <Outlet />
+        </div>
       </main>
     </div>
   );
