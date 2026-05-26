@@ -837,6 +837,52 @@ export default function Lines() {
                   </p>
                 </div>
               )}
+
+              {/* Xtream Codes Login — campos separados para apps IPTV */}
+              {(() => {
+                const xtreamBase = edgeActive
+                  ? edgeCfg!.base_url
+                  : servers[0] ? `http://${servers[0].ip}:${servers[0].port}` : null;
+                const xtreamPort = edgeActive ? "443" : (servers[0]?.port?.toString() ?? "80");
+                if (!xtreamBase) return null;
+                const loginFields = [
+                  { label: "Servidor", value: xtreamBase, key: "srv" },
+                  { label: "Puerto", value: xtreamPort, key: "port" },
+                  { label: "Usuario", value: credModal.username, key: "usr" },
+                  { label: "Contraseña", value: credModal.password, key: "pwd" },
+                ];
+                const allText = `Servidor: ${xtreamBase}\nPuerto: ${xtreamPort}\nUsuario: ${credModal.username}\nContraseña: ${credModal.password}`;
+                return (
+                  <div className="rounded-lg border border-border p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-foreground">Xtream Codes Login</p>
+                      <button onClick={() => copyText(allText, "xtream-all")}
+                        className="text-[11px] text-violet-600 hover:text-violet-700 font-medium flex items-center gap-1">
+                        {copied === "xtream-all" ? <Check className="size-3" /> : <Copy className="size-3" />}
+                        Copiar todo
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {loginFields.map((f) => (
+                        <div key={f.key} className="space-y-0.5">
+                          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">{f.label}</p>
+                          <div className="flex items-center gap-1.5 rounded bg-muted px-2 py-1.5">
+                            <code className="flex-1 text-xs break-all">{f.value}</code>
+                            <button onClick={() => copyText(f.value, f.key)}
+                              className="shrink-0 text-muted-foreground hover:text-foreground">
+                              {copied === f.key ? <Check className="size-3 text-green-600" /> : <Copy className="size-3" />}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      Usa estos datos en TiviMate, Smarters, XCIPTV o cualquier app con "Xtream Codes Login".
+                    </p>
+                  </div>
+                );
+              })()}
+
               {getCredentialUrls(credModal).map(({ label, value }) => (
                 <div key={label} className="space-y-1">
                   <p className="text-xs font-medium text-muted-foreground">{label}</p>
