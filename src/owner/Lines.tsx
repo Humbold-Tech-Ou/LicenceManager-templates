@@ -396,13 +396,32 @@ export default function Lines() {
     toast.success("Copiado");
   }
 
+  /**
+   * Build the HTTP base URL (protocol://ip:port) for a server, preferring the
+   * dedicated http_port over the management port (which may be SSH=22 or RTMP=1935).
+   */
+  function getServerHttpBase(srv: any): string | null {
+    if (!srv) return null;
+    // Priority 1: explicit http_port set by the tenant
+    if (srv.http_port) {
+      const proto = srv.http_use_https ? "https" : "http";
+      return `${proto}://${srv.ip}:${srv.http_port}`;
+    }
+    // Priority 2: protocol is already http/https → use management port
+    if (srv.protocol === "http" || srv.protocol === "https") {
+      return `${srv.protocol}://${srv.ip}:${srv.port}`;
+    }
+    // SSH/RTMP server with no http_port configured → no HTTP base available
+    return null;
+  }
+
   function getM3U(line: Line) {
     if (edgeActive) {
       return `${edgeCfg!.base_url}/get.php?username=${line.username}&password=${line.password}&type=m3u_plus`;
     }
-    const srv = servers[0];
-    if (!srv) return "";
-    return `http://${srv.ip}:${srv.port}/get.php?username=${line.username}&password=${line.password}&type=m3u_plus`;
+    const base = getServerHttpBase(servers[0]);
+    if (!base) return "";
+    return `${base}/get.php?username=${line.username}&password=${line.password}&type=m3u_plus`;
   }
 
   function getCredentialUrls(line: Line) {
@@ -414,12 +433,12 @@ export default function Lines() {
         { label: "Xtream API", value: `${base}/player_api.php?username=${line.username}&password=${line.password}` },
       ];
     }
-    const srv = servers[0];
-    if (!srv) return [];
+    const base = getServerHttpBase(servers[0]);
+    if (!base) return [];
     return [
-      { label: "M3U Plus", value: `http://${srv.ip}:${srv.port}/get.php?username=${line.username}&password=${line.password}&type=m3u_plus` },
-      { label: "EPG", value: `http://${srv.ip}:${srv.port}/xmltv.php?username=${line.username}&password=${line.password}` },
-      { label: "Xtream API", value: `http://${srv.ip}:${srv.port}/player_api.php?username=${line.username}&password=${line.password}` },
+      { label: "M3U Plus", value: `${base}/get.php?username=${line.username}&password=${line.password}&type=m3u_plus` },
+      { label: "EPG", value: `${base}/xmltv.php?username=${line.username}&password=${line.password}` },
+      { label: "Xtream API", value: `${base}/player_api.php?username=${line.username}&password=${line.password}` },
     ];
   }
 
@@ -840,10 +859,13 @@ export default function Lines() {
 
               {/* Xtream Codes Login — campos separados para apps IPTV */}
               {(() => {
-                const xtreamBase = edgeActive
-                  ? edgeCfg!.base_url
-                  : servers[0] ? `http://${servers[0].ip}:${servers[0].port}` : null;
-                const xtreamPort = edgeActive ? "443" : (servers[0]?.port?.toString() ?? "80");
+                const srv = servers[0];
+                const httpBase = edgeActive ? edgeCfg!.base_url : getServerHttpBase(srv);
+                const xtreamBase = httpBase;
+                // Port: 443 for edge, http_port if set, else server.port if protocol is http(s)
+                const xtreamPort = edgeActive
+                  ? "443"
+                  : (srv?.http_port?.toString() ?? (srv?.protocol === "http" || srv?.protocol === "https" ? srv.port?.toString() : null) ?? "80");
                 if (!xtreamBase) return null;
                 const loginFields = [
                   { label: "Servidor", value: xtreamBase, key: "srv" },

@@ -101,6 +101,11 @@ interface FormState {
   ssh_password: string;
   ssh_private_key: string;
   ssh_passphrase: string;
+  // HTTP file-serving (distinct from management port — required for SSH/RTMP servers
+  // that also need to serve VOD files via HTTP through nginx/apache).
+  http_port: string;
+  http_base_path: string;
+  http_use_https: boolean;
 }
 
 const EMPTY_FORM: FormState = {
@@ -116,6 +121,9 @@ const EMPTY_FORM: FormState = {
   ssh_password: "",
   ssh_private_key: "",
   ssh_passphrase: "",
+  http_port: "",
+  http_base_path: "",
+  http_use_https: false,
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -284,6 +292,9 @@ export default function Servers() {
       ssh_password: "",
       ssh_private_key: "",
       ssh_passphrase: "",
+      http_port: (srv as any).http_port != null ? String((srv as any).http_port) : "",
+      http_base_path: (srv as any).http_base_path ?? "",
+      http_use_https: !!(srv as any).http_use_https,
     });
     setSheetOpen(true);
   }
@@ -368,6 +379,9 @@ export default function Servers() {
         isp_whitelist: ispArr.length > 0 ? ispArr : null,
         ssh_username: isSsh ? form.ssh_username || null : null,
         ssh_auth_method: isSsh ? form.ssh_auth_method : null,
+        http_port: form.http_port.trim() ? parseInt(form.http_port) : null,
+        http_base_path: form.http_base_path.trim() || null,
+        http_use_https: form.http_use_https,
       };
       let serverId: string | undefined;
       if (editing) {
@@ -658,6 +672,56 @@ export default function Servers() {
                     <SelectItem value="ssh">SSH</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+            {/* HTTP file-serving block — required for VOD streaming when
+                the management port is SSH/RTMP. Tenants must run nginx/apache
+                on the http_port and serve their VOD directory. */}
+            <div className="space-y-3 rounded-lg border border-sky-200 bg-sky-50/40 p-3">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-sky-700">
+                <Tv className="size-3.5" />
+                Servidor HTTP para VOD
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                Si tu servidor tiene SSH (puerto 22) o RTMP (1935), necesitas un
+                puerto HTTP separado (ej: nginx en 80) para que las apps puedan
+                reproducir las películas/series. Déjalo vacío si tu servidor ya
+                usa HTTP/HTTPS arriba.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Puerto HTTP</Label>
+                  <Input
+                    type="number"
+                    value={form.http_port}
+                    onChange={(e) => setForm((f) => ({ ...f, http_port: e.target.value }))}
+                    placeholder="80"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={form.http_use_https}
+                      onChange={(e) => setForm((f) => ({ ...f, http_use_https: e.target.checked }))}
+                      className="size-4"
+                    />
+                    Usar HTTPS
+                  </Label>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Ruta base (opcional)</Label>
+                <Input
+                  value={form.http_base_path}
+                  onChange={(e) => setForm((f) => ({ ...f, http_base_path: e.target.value }))}
+                  placeholder="/streaming"
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Se antepone al file_path. Ejemplo: si tu nginx sirve /home/Peliculas/movie.mp4
+                  como http://server/streaming/movie.mp4 y tu file_path es /home/Peliculas/movie.mp4,
+                  deja esto vacío y configura nginx con un alias.
+                </p>
               </div>
             </div>
             {/* SSH credentials block */}

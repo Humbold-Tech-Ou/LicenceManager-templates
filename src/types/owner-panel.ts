@@ -73,6 +73,11 @@ export interface Server {
   ssh_username: string | null;
   ssh_auth_method: SshAuthMethod | null;
   ssh_secret_id: string | null;
+  // HTTP file serving (distinct from management port — required for VOD streaming
+  // when management protocol is SSH or RTMP).
+  http_port: number | null;
+  http_base_path: string | null;
+  http_use_https: boolean;
   created_at: string;
 }
 
