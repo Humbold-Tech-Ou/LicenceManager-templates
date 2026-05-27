@@ -79,7 +79,16 @@ export default function VODDetail() {
         return;
       }
       setItem(data as VodItem);
-      const s: Season[] = Array.isArray(data.seasons) ? (data.seasons as Season[]) : [];
+      const raw = data.seasons;
+      let s: Season[] = [];
+      if (Array.isArray(raw)) {
+        s = raw as Season[];
+      } else if (raw && typeof raw === "object") {
+        s = Object.entries(raw).map(([num, eps]) => ({
+          number: Number(num),
+          episodes: Array.isArray(eps) ? (eps as Episode[]) : [],
+        }));
+      }
       setSeasons(s);
       // Open first season by default
       if (s.length > 0) setOpenSeasons([String(s[0].number)]);
