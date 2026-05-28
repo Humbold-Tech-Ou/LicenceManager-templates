@@ -8,6 +8,7 @@ import {
 } from "recharts";
 import type { Line } from "@/types/owner-panel";
 import { toast } from "sonner";
+import CreditRequestCard from "./CreditRequestCard";
 
 interface ChartPoint { day: string; líneas: number }
 
@@ -194,6 +195,9 @@ export default function OwnerDashboard() {
         </div>
         <p className="text-xs text-muted-foreground">{creditPct}% utilizado</p>
       </div>
+
+      {/* ── Credit request (owner only) ── */}
+      {isOwner && <CreditRequestCard />}
 
       {/* ── Chart ── */}
       <div className="rounded-xl border border-border bg-card p-5">
