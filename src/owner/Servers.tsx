@@ -57,6 +57,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { ChevronDown } from "lucide-react";
 
 const SUPABASE_FUNCTIONS_URL = "https://rrresinucnxfdaaqcqcp.supabase.co";
 const SUPABASE_ANON_KEY_PUB = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJycmVzaW51Y254ZmRhYXFjcWNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMzI5OTksImV4cCI6MjA5MTkwODk5OX0.PHQTe4-m5Nv16SXK64xLSybO-rh9_ZLiCiRO_KRam2I";
@@ -806,47 +812,56 @@ export default function Servers() {
                 </p>
               </div>
             )}
-            {/* Type */}
-            <div className="space-y-1.5">
-              <Label>Tipo</Label>
-              <Select
-                value={form.type}
-                onValueChange={(v) => setForm((f) => ({ ...f, type: v as ServerType }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="live">Live (solo canales)</SelectItem>
-                  <SelectItem value="vod">VOD (solo películas/series)</SelectItem>
-                  <SelectItem value="hybrid">Híbrido (live + VOD)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {/* GeoIP countries */}
-            <div className="space-y-1.5">
-              <Label>Países permitidos (GeoIP)</Label>
-              <Input
-                value={form.geo_countries}
-                onChange={(e) => setForm((f) => ({ ...f, geo_countries: e.target.value }))}
-                placeholder="VE, CO, MX, US (vacío = todos)"
-              />
-              <p className="text-xs text-muted-foreground">
-                Códigos ISO separados por coma. Vacío permite todos los países.
-              </p>
-            </div>
-            {/* ISP whitelist */}
-            <div className="space-y-1.5">
-              <Label>ISP permitidos</Label>
-              <Input
-                value={form.isp_whitelist}
-                onChange={(e) => setForm((f) => ({ ...f, isp_whitelist: e.target.value }))}
-                placeholder="CANTV, Movistar (vacío = todos)"
-              />
-              <p className="text-xs text-muted-foreground">
-                Nombres de ISP separados por coma. Vacío permite todos.
-              </p>
-            </div>
+            {/* Advanced options (rarely modified) */}
+            <Collapsible>
+              <CollapsibleTrigger className="flex w-full items-center justify-between rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted/50 [&[data-state=open]>svg]:rotate-180">
+                Opciones avanzadas
+                <ChevronDown className="size-4 transition-transform" />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="space-y-4 pt-3">
+                {/* Type */}
+                <div className="space-y-1.5">
+                  <Label>Tipo</Label>
+                  <Select
+                    value={form.type}
+                    onValueChange={(v) => setForm((f) => ({ ...f, type: v as ServerType }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="live">Live (solo canales)</SelectItem>
+                      <SelectItem value="vod">VOD (solo películas/series)</SelectItem>
+                      <SelectItem value="hybrid">Híbrido (live + VOD)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {/* GeoIP countries */}
+                <div className="space-y-1.5">
+                  <Label>Países permitidos (GeoIP)</Label>
+                  <Input
+                    value={form.geo_countries}
+                    onChange={(e) => setForm((f) => ({ ...f, geo_countries: e.target.value }))}
+                    placeholder="VE, CO, MX, US (vacío = todos)"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Códigos ISO separados por coma. Vacío permite todos los países.
+                  </p>
+                </div>
+                {/* ISP whitelist */}
+                <div className="space-y-1.5">
+                  <Label>ISP permitidos</Label>
+                  <Input
+                    value={form.isp_whitelist}
+                    onChange={(e) => setForm((f) => ({ ...f, isp_whitelist: e.target.value }))}
+                    placeholder="CANTV, Movistar (vacío = todos)"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Nombres de ISP separados por coma. Vacío permite todos.
+                  </p>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
             {/* URL preview */}
             {previewUrl && (
               <div className="rounded-lg bg-muted/50 px-3 py-2 text-xs font-mono text-muted-foreground break-all">
