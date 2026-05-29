@@ -22,12 +22,13 @@ import {
 } from "@/components/ui/select";
 import {
   Loader2, Plus, Search, Radio, MoreHorizontal, X, Tv2,
-  ScanSearch, Copy, Check, Wifi, Zap, Upload, AlertTriangle, FileText,
+  ScanSearch, Copy, Check, Wifi, Zap, Upload, AlertTriangle, FileText, Globe,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Stream, StreamType, Server } from "@/types/owner-panel";
 import { FolderCard } from "@/components/ui/folder-card";
+import M3uUrlImportDialog from "./M3uUrlImportDialog";
 
 const FOLDER_VARIANTS = ["default", "project", "system", "amber", "emerald", "rose"] as const;
 
@@ -449,6 +450,7 @@ export default function Streams() {
 
   // ── M3U Import (with preview + duplicate detection) ──
   const [importingM3u, setImportingM3u] = useState(false);
+  const [m3uUrlOpen, setM3uUrlOpen] = useState(false);
   const [m3uDialogOpen, setM3uDialogOpen] = useState(false);
   const [m3uPreview, setM3uPreview] = useState<{
     entries: { name: string; url: string; logo: string; category: string; epg: string }[];
@@ -567,10 +569,14 @@ export default function Streams() {
           )}
         </div>
         <div className="flex gap-2 shrink-0">
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setM3uUrlOpen(true)}>
+            <Globe className="size-4" />
+            Importar URL M3U
+          </Button>
           <Button size="sm" variant="outline" className="gap-1.5" asChild disabled={importingM3u}>
             <label className="cursor-pointer">
               {importingM3u ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-              Importar M3U
+              Importar archivo
               <input type="file" accept=".m3u,.m3u8" className="hidden"
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleM3uParse(f); e.target.value = ""; }} />
             </label>
@@ -1234,6 +1240,13 @@ export default function Streams() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── M3U URL Import Dialog (Sprint 11.1) ── */}
+      <M3uUrlImportDialog
+        open={m3uUrlOpen}
+        onOpenChange={setM3uUrlOpen}
+        onImported={loadAll}
+      />
     </div>
   );
 }
