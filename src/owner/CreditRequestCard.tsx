@@ -57,6 +57,7 @@ export default function CreditRequestCard() {
       const res = await fetch(`${LICENSE_URL}/functions/v1/list-credit-requests`, {
         headers: {
           apikey: LICENSE_ANON,
+          Authorization: `Bearer ${LICENSE_ANON}`,
           "X-Tenant-Token": tenantToken,
         },
       });
@@ -84,6 +85,7 @@ export default function CreditRequestCard() {
         method: "POST",
         headers: {
           apikey: LICENSE_ANON,
+          Authorization: `Bearer ${LICENSE_ANON}`,
           "X-Tenant-Token": tenantToken,
           "Content-Type": "application/json",
         },
