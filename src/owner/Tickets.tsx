@@ -165,17 +165,28 @@ export default function Tickets() {
 
   async function fetchReplies(ticketId: string) {
     setRepliesLoading(true);
+    // Use SECURITY DEFINER RPC because the resellers RLS only allows reading
+    // your own subtree — replies from an ancestor (e.g. the owner answering
+    // a reseller) would otherwise come back with sender = null.
     const { data, error } = await ownerSupabase
-      .from("ticket_replies")
-      .select("*, sender:resellers(id,name,role)")
-      .eq("ticket_id", ticketId)
-      .order("created_at", { ascending: true });
+      .rpc("get_ticket_replies", { _ticket_id: ticketId });
 
     if (error) {
       toast.error("Error al cargar respuestas");
       console.error(error);
     } else {
-      setReplies(data || []);
+      // Reshape flat rows to match the existing TicketReply shape (sender as nested object)
+      const reshaped = (data ?? []).map((r: any) => ({
+        id: r.id,
+        ticket_id: r.ticket_id,
+        sender_id: r.sender_id,
+        body: r.body,
+        created_at: r.created_at,
+        sender: r.sender_id
+          ? { id: r.sender_id, name: r.sender_name ?? "Desconocido", role: r.sender_role ?? "" }
+          : null,
+      }));
+      setReplies(reshaped);
     }
     setRepliesLoading(false);
   }

@@ -1,8 +1,9 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { useOwnerAuth, useOwnerConfig, useCascadingImpersonation } from "@/hooks/useOwnerPanel";
+import { useOwnerAuth, useOwnerConfig, useCascadingImpersonation, ownerSupabase } from "@/hooks/useOwnerPanel";
 import { useUpdateChecker } from "@/hooks/useUpdateChecker";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState, useCallback } from "react";
+import { LifeBuoy } from "lucide-react";
 import {
   LayoutDashboard,
   Users,
@@ -40,13 +41,14 @@ const NAV_OWNER_BASE = [
   { to: "/owner/vod",          label: "VOD",          icon: Film,         flag: "vod" as const },
   { to: "/owner/bouquets",     label: "Bouquets",     icon: ListMusic,    flag: null },
   { to: "/owner/epg",          label: "EPG",          icon: CalendarDays, flag: "streams" as const },
-  { to: "/owner/tickets",      label: "Tickets",      icon: MessageSquare,flag: null },
+  { to: "/owner/tickets",      label: "Tickets",      icon: MessageSquare,flag: null, badgeKey: "internal" as const },
+  { to: "/owner/support",      label: "Soporte SuperAdmin", icon: LifeBuoy, flag: null, badgeKey: "support" as const },
   { to: "/owner/settings",     label: "Configuración",icon: Settings,     flag: null },
 ];
 
 /** Extra nav for resellers (non-owners) — Tickets + account settings */
 const NAV_RESELLER = [
-  { to: "/owner/tickets",  label: "Tickets",   icon: MessageSquare },
+  { to: "/owner/tickets",  label: "Tickets",   icon: MessageSquare, badgeKey: "internal" as const },
   { to: "/owner/settings", label: "Mi cuenta", icon: Settings },
 ];
 
@@ -57,6 +59,7 @@ function SidebarLink({
   primaryColor,
   collapsed,
   onNavigate,
+  badgeCount = 0,
 }: {
   to: string;
   label: string;
@@ -64,6 +67,7 @@ function SidebarLink({
   primaryColor: string;
   collapsed: boolean;
   onNavigate?: () => void;
+  badgeCount?: number;
 }) {
   return (
     <NavLink
@@ -80,14 +84,24 @@ function SidebarLink({
         } ${collapsed ? "justify-center" : ""}`
       }
     >
-      <Icon className="size-4 shrink-0" />
+      <div className="relative shrink-0">
+        <Icon className="size-4" />
+        {badgeCount > 0 && (
+          <span className="absolute -top-1 -right-1 size-2 rounded-full bg-red-500 ring-2 ring-white" />
+        )}
+      </div>
       <span
         className={`overflow-hidden whitespace-nowrap transition-all duration-200 ${
-          collapsed ? "w-0 opacity-0" : "w-auto opacity-100"
+          collapsed ? "w-0 opacity-0" : "w-auto opacity-100 flex-1"
         }`}
       >
         {label}
       </span>
+      {badgeCount > 0 && !collapsed && (
+        <span className="ml-auto rounded-full bg-red-500 text-white text-[10px] px-1.5 py-0.5 font-semibold">
+          {badgeCount}
+        </span>
+      )}
     </NavLink>
   );
 }
@@ -154,6 +168,10 @@ function useIsMobile() {
   return isMobile;
 }
 
+const LICENSE_URL = "https://rrresinucnxfdaaqcqcp.supabase.co";
+const LICENSE_ANON =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJycmVzaW51Y254ZmRhYXFjcWNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMzI5OTksImV4cCI6MjA5MTkwODk5OX0.PHQTe4-m5Nv16SXK64xLSybO-rh9_ZLiCiRO_KRam2I";
+
 export default function OwnerLayout() {
   const { reseller, signOut } = useOwnerAuth();
   const config = useOwnerConfig();
@@ -163,6 +181,44 @@ export default function OwnerLayout() {
   const primaryColor = config.branding?.primary_color || "#7C3AED";
   const features = config.features;
   const isMobile = useIsMobile();
+
+  // Poll unread counts (internal tickets + superadmin support)
+  const tenantToken = (import.meta.env.VITE_TENANT_TOKEN as string | undefined) ?? "";
+  const [internalUnread, setInternalUnread] = useState(0);
+  const [supportUnread, setSupportUnread] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    async function refresh() {
+      // Internal tickets (resellers/owner within tenant DB)
+      try {
+        const { data } = await ownerSupabase.rpc("get_tickets_unread_count" as never);
+        if (!cancelled) setInternalUnread(Number(data ?? 0));
+      } catch { /* ignore */ }
+      // SuperAdmin support tickets (master DB) — only relevant for owners with tenant_token
+      if (tenantToken) {
+        try {
+          const res = await fetch(`${LICENSE_URL}/functions/v1/support-ticket-unread-count`, {
+            headers: {
+              apikey: LICENSE_ANON,
+              Authorization: `Bearer ${LICENSE_ANON}`,
+              "X-Tenant-Token": tenantToken,
+            },
+          });
+          const j = await res.json();
+          if (!cancelled && res.ok) setSupportUnread(Number(j.unread_count ?? 0));
+        } catch { /* ignore */ }
+      }
+    }
+    refresh();
+    const id = setInterval(refresh, 30_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [reseller?.id, tenantToken]);
+
+  const badgeFor = (key?: string): number => {
+    if (key === "internal") return internalUnread;
+    if (key === "support") return supportUnread;
+    return 0;
+  };
 
   // Collapsed state (desktop only, persisted)
   const [collapsed, setCollapsed] = useState(() => {
@@ -292,10 +348,13 @@ export default function OwnerLayout() {
               {NAV_OWNER.map((item) => (
                 <SidebarLink
                   key={item.to}
-                  {...item}
+                  to={item.to}
+                  label={item.label}
+                  icon={item.icon}
                   primaryColor={primaryColor}
                   collapsed={effectiveCollapsed}
                   onNavigate={closeMobileSidebar}
+                  badgeCount={badgeFor((item as any).badgeKey)}
                 />
               ))}
             </>
@@ -317,10 +376,13 @@ export default function OwnerLayout() {
               {NAV_RESELLER.map((item) => (
                 <SidebarLink
                   key={item.to}
-                  {...item}
+                  to={item.to}
+                  label={item.label}
+                  icon={item.icon}
                   primaryColor={primaryColor}
                   collapsed={effectiveCollapsed}
                   onNavigate={closeMobileSidebar}
+                  badgeCount={badgeFor((item as any).badgeKey)}
                 />
               ))}
             </>
