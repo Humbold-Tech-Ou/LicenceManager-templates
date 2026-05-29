@@ -233,6 +233,18 @@ interface SourceHealth {
   last_error: string | null;
 }
 
+interface FailoverEvent {
+  id: string;
+  stream_id: string;
+  from_source_id: string | null;
+  from_source_label: string | null;
+  to_source_id: string | null;
+  to_source_label: string | null;
+  reason: string | null;
+  occurred_at: string;
+  resolved_at: string | null;
+}
+
 export default function Streams() {
   const [streams,  setStreams]  = useState<Stream[]>([]);
   const [servers,  setServers]  = useState<Server[]>([]);
@@ -264,20 +276,26 @@ export default function Streams() {
 
   async function loadAll() {
     setLoading(true);
-    const [strRes, srvRes, healthRes] = await Promise.all([
+    const [strRes, srvRes, healthRes, openFovRes] = await Promise.all([
       ownerSupabase.from("streams").select("*").order("sort_order").order("name"),
-      ownerSupabase.from("servers").select("id, name, status").eq("status", "active"),
+      ownerSupabase.from("servers").select("id, name, status, protocol, ip, port, rtmp_app").eq("status", "active"),
       ownerSupabase.from("stream_health").select("*"),
+      ownerSupabase.from("failover_events").select("*").is("resolved_at", null),
     ]);
     setStreams(strRes.data ?? []);
     setServers(srvRes.data ?? []);
     setHealth(Object.fromEntries((healthRes.data ?? []).map((h: any) => [h.stream_id, h])));
+    setOpenFailovers(Object.fromEntries((openFovRes.data ?? []).map((f: any) => [f.stream_id, f])));
     setLoading(false);
   }
 
   async function refreshHealth() {
-    const { data } = await ownerSupabase.from("stream_health").select("*");
-    if (data) setHealth(Object.fromEntries(data.map((h: any) => [h.stream_id, h])));
+    const [hRes, fRes] = await Promise.all([
+      ownerSupabase.from("stream_health").select("*"),
+      ownerSupabase.from("failover_events").select("*").is("resolved_at", null),
+    ]);
+    if (hRes.data) setHealth(Object.fromEntries(hRes.data.map((h: any) => [h.stream_id, h])));
+    if (fRes.data) setOpenFailovers(Object.fromEntries(fRes.data.map((f: any) => [f.stream_id, f])));
   }
 
   // Stats
@@ -311,11 +329,15 @@ export default function Streams() {
   // ── Sources (Sprint 8.2 — round-robin pool) ──
   const [sources, setSources] = useState<StreamSource[]>([]);
   const [sourceHealth, setSourceHealth] = useState<Record<string, SourceHealth>>({});
+  // Sprint 11.3 — failover events
+  const [openFailovers, setOpenFailovers] = useState<Record<string, FailoverEvent>>({});
+  const [recentFailovers, setRecentFailovers] = useState<FailoverEvent[]>([]);
   const [newSrcUrl, setNewSrcUrl] = useState("");
   const [newSrcLabel, setNewSrcLabel] = useState("");
 
   async function loadSourcesFor(streamId: string) {
-    const [srcRes, healthRes] = await Promise.all([
+    const since = new Date(Date.now() - 24 * 3600_000).toISOString();
+    const [srcRes, healthRes, fovRes] = await Promise.all([
       ownerSupabase
         .from("stream_sources")
         .select("*")
@@ -325,9 +347,17 @@ export default function Streams() {
         .from("stream_source_health")
         .select("*")
         .eq("stream_id", streamId),
+      ownerSupabase
+        .from("failover_events")
+        .select("*")
+        .eq("stream_id", streamId)
+        .gte("occurred_at", since)
+        .order("occurred_at", { ascending: false })
+        .limit(20),
     ]);
     setSources((srcRes.data ?? []) as StreamSource[]);
     setSourceHealth(Object.fromEntries((healthRes.data ?? []).map((h: any) => [h.source_id, h])));
+    setRecentFailovers((fovRes.data ?? []) as FailoverEvent[]);
   }
 
   async function addSource() {
@@ -364,6 +394,7 @@ export default function Streams() {
     setForm({ ...EMPTY_FORM, sort_order: String(streams.length + 1) });
     setSources([]);
     setSourceHealth({});
+    setRecentFailovers([]);
     setNewSrcUrl("");
     setNewSrcLabel("");
     setLogoSearch("");
@@ -733,6 +764,14 @@ export default function Streams() {
                         );
                       })()}
                       <p className="font-medium text-foreground">{s.name}</p>
+                      {openFailovers[s.id] && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full bg-red-100 text-red-700 text-[10px] px-1.5 py-0.5 font-semibold"
+                          title={`Primaria caída desde ${new Date(openFailovers[s.id].occurred_at).toLocaleString()}. Tráfico va a ${openFailovers[s.id].to_source_label ?? "backup"}.`}
+                        >
+                          <AlertTriangle className="size-2.5" /> Failover
+                        </span>
+                      )}
                     </div>
                     {s.server_id && serverName[s.server_id] && (
                       <p className="text-xs text-muted-foreground ml-4">{serverName[s.server_id]}</p>
@@ -1098,6 +1137,57 @@ export default function Streams() {
                   >
                     <Plus className="size-3" /> Añadir fuente
                   </Button>
+                </div>
+              </div>
+            )}
+
+            {/* ── Failover timeline (Sprint 11.3) ── */}
+            {editTarget && recentFailovers.length > 0 && (
+              <div className="space-y-2 rounded-lg border border-red-200 bg-red-50/30 p-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold text-red-700 flex items-center gap-1.5">
+                    <AlertTriangle className="size-3.5" />
+                    Historial de failover (últimas 24h)
+                  </Label>
+                  <span className="text-[10px] text-muted-foreground">
+                    {recentFailovers.filter(e => !e.resolved_at).length} abiertos
+                  </span>
+                </div>
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {recentFailovers.map(ev => {
+                    const start = new Date(ev.occurred_at);
+                    const end = ev.resolved_at ? new Date(ev.resolved_at) : null;
+                    const durationMin = end
+                      ? Math.round((end.getTime() - start.getTime()) / 60_000)
+                      : Math.round((Date.now() - start.getTime()) / 60_000);
+                    return (
+                      <div
+                        key={ev.id}
+                        className={cn(
+                          "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[11px]",
+                          ev.resolved_at
+                            ? "bg-zinc-50 border border-zinc-200"
+                            : "bg-red-100 border border-red-200"
+                        )}
+                      >
+                        <span className={cn(
+                          "size-2 rounded-full shrink-0",
+                          ev.resolved_at ? "bg-zinc-400" : "bg-red-500 animate-pulse"
+                        )} />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium">
+                            {ev.from_source_label || "Primaria"} → {ev.to_source_label || "Backup"}
+                          </p>
+                          <p className="text-muted-foreground">
+                            {start.toLocaleString()}
+                            {ev.resolved_at
+                              ? ` · ${durationMin} min de caída · resuelto`
+                              : ` · ${durationMin}+ min activo`}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
