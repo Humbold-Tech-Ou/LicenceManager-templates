@@ -203,9 +203,19 @@ function LogoSearchPanel({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
+interface StreamHealth {
+  stream_id: string;
+  is_online: boolean;
+  bitrate_kbps: number | null;
+  resolution: string | null;
+  last_checked_at: string;
+  last_error: string | null;
+}
+
 export default function Streams() {
   const [streams,  setStreams]  = useState<Stream[]>([]);
   const [servers,  setServers]  = useState<Server[]>([]);
+  const [health,   setHealth]   = useState<Record<string, StreamHealth>>({});
   const [loading,  setLoading]  = useState(true);
   const [search,   setSearch]   = useState("");
   const [catFilter, setCatFilter] = useState("all");
@@ -224,17 +234,29 @@ export default function Streams() {
   const [deleteTarget,  setDeleteTarget]  = useState<Stream | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => {
+    loadAll();
+    // Refresh health every 30s so the dot stays current without a full reload
+    const id = setInterval(refreshHealth, 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   async function loadAll() {
     setLoading(true);
-    const [strRes, srvRes] = await Promise.all([
+    const [strRes, srvRes, healthRes] = await Promise.all([
       ownerSupabase.from("streams").select("*").order("sort_order").order("name"),
       ownerSupabase.from("servers").select("id, name, status").eq("status", "active"),
+      ownerSupabase.from("stream_health").select("*"),
     ]);
     setStreams(strRes.data ?? []);
     setServers(srvRes.data ?? []);
+    setHealth(Object.fromEntries((healthRes.data ?? []).map((h: any) => [h.stream_id, h])));
     setLoading(false);
+  }
+
+  async function refreshHealth() {
+    const { data } = await ownerSupabase.from("stream_health").select("*");
+    if (data) setHealth(Object.fromEntries(data.map((h: any) => [h.stream_id, h])));
   }
 
   // Stats
@@ -580,6 +602,8 @@ export default function Streams() {
                 <th className="px-4 py-3 font-medium">Canal</th>
                 <th className="px-4 py-3 font-medium">Tipo</th>
                 <th className="px-4 py-3 font-medium">Categoría</th>
+                <th className="px-4 py-3 font-medium hidden lg:table-cell">Bitrate</th>
+                <th className="px-4 py-3 font-medium hidden lg:table-cell">Resolución</th>
                 <th className="px-4 py-3 font-medium hidden md:table-cell">URL</th>
                 <th className="px-4 py-3 font-medium">Estado</th>
                 <th className="px-4 py-3 w-10" />
@@ -603,12 +627,35 @@ export default function Streams() {
                   </td>
                   {/* Name + server */}
                   <td className="px-4 py-2.5">
-                    <p className="font-medium text-foreground">{s.name}</p>
+                    <div className="flex items-center gap-2">
+                      {(() => {
+                        const h = health[s.id];
+                        if (!h) return (
+                          <span
+                            className="size-2 rounded-full bg-zinc-300 shrink-0"
+                            title="Sin chequeo aún (el cron corre cada 2 min)"
+                          />
+                        );
+                        const ago = Math.round((Date.now() - new Date(h.last_checked_at).getTime()) / 60_000);
+                        return (
+                          <span
+                            className={cn(
+                              "size-2 rounded-full shrink-0",
+                              h.is_online ? "bg-green-500" : "bg-red-500"
+                            )}
+                            title={h.is_online
+                              ? `Online (último chequeo: hace ${ago} min)`
+                              : `Offline${h.last_error ? ": " + h.last_error : ""} (hace ${ago} min)`}
+                          />
+                        );
+                      })()}
+                      <p className="font-medium text-foreground">{s.name}</p>
+                    </div>
                     {s.server_id && serverName[s.server_id] && (
-                      <p className="text-xs text-muted-foreground">{serverName[s.server_id]}</p>
+                      <p className="text-xs text-muted-foreground ml-4">{serverName[s.server_id]}</p>
                     )}
                     {s.epg_id && (
-                      <p className="text-[11px] text-muted-foreground/70 font-mono">{s.epg_id}</p>
+                      <p className="text-[11px] text-muted-foreground/70 font-mono ml-4">{s.epg_id}</p>
                     )}
                   </td>
                   {/* Type */}
@@ -618,6 +665,16 @@ export default function Streams() {
                   {/* Category */}
                   <td className="px-4 py-2.5 text-muted-foreground text-xs">
                     {s.category ?? "—"}
+                  </td>
+                  {/* Bitrate */}
+                  <td className="px-4 py-2.5 hidden lg:table-cell text-xs font-mono text-muted-foreground">
+                    {health[s.id]?.bitrate_kbps != null
+                      ? `${health[s.id].bitrate_kbps.toLocaleString()}K`
+                      : "—"}
+                  </td>
+                  {/* Resolución */}
+                  <td className="px-4 py-2.5 hidden lg:table-cell text-xs font-mono text-muted-foreground">
+                    {health[s.id]?.resolution ?? "—"}
                   </td>
                   {/* URL */}
                   <td className="px-4 py-2.5 hidden md:table-cell">
