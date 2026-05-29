@@ -124,9 +124,20 @@ export default function M3uUrlImportDialog({
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error ?? "Error importando");
-      toast.success(
-        `Importación completa: +${j.added} nuevos · ${j.updated} actualizados · ${j.skipped} sin cambios`,
-      );
+      const hasErrors = Array.isArray(j.errors) && j.errors.length > 0;
+      if (hasErrors) {
+        toast.error(
+          `Importación parcial: +${j.added} nuevos · ${j.updated} actualizados · ${j.skipped} sin cambios`,
+          { description: j.errors.slice(0, 2).join(" — ").slice(0, 300) },
+        );
+      } else if (j.added === 0 && j.updated === 0 && toApply.length > j.skipped) {
+        // Nothing inserted AND nothing updated AND not just skipped → something silently failed
+        toast.error("La importación no agregó canales. Verifica permisos del proyecto Supabase.");
+      } else {
+        toast.success(
+          `Importación completa: +${j.added} nuevos · ${j.updated} actualizados · ${j.skipped} sin cambios`,
+        );
+      }
       onImported?.();
       onOpenChange(false);
       reset();
