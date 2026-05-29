@@ -212,6 +212,26 @@ interface StreamHealth {
   last_error: string | null;
 }
 
+interface StreamSource {
+  id: string;
+  stream_id: string;
+  label: string | null;
+  stream_url: string;
+  server_id: string | null;
+  priority: number;
+  created_at: string;
+}
+
+interface SourceHealth {
+  source_id: string;
+  stream_id: string;
+  is_online: boolean;
+  bitrate_kbps: number | null;
+  resolution: string | null;
+  last_checked_at: string;
+  last_error: string | null;
+}
+
 export default function Streams() {
   const [streams,  setStreams]  = useState<Stream[]>([]);
   const [servers,  setServers]  = useState<Server[]>([]);
@@ -287,10 +307,64 @@ export default function Streams() {
     return m;
   }, [servers]);
 
+  // ── Sources (Sprint 8.2 — round-robin pool) ──
+  const [sources, setSources] = useState<StreamSource[]>([]);
+  const [sourceHealth, setSourceHealth] = useState<Record<string, SourceHealth>>({});
+  const [newSrcUrl, setNewSrcUrl] = useState("");
+  const [newSrcLabel, setNewSrcLabel] = useState("");
+
+  async function loadSourcesFor(streamId: string) {
+    const [srcRes, healthRes] = await Promise.all([
+      ownerSupabase
+        .from("stream_sources")
+        .select("*")
+        .eq("stream_id", streamId)
+        .order("priority"),
+      ownerSupabase
+        .from("stream_source_health")
+        .select("*")
+        .eq("stream_id", streamId),
+    ]);
+    setSources((srcRes.data ?? []) as StreamSource[]);
+    setSourceHealth(Object.fromEntries((healthRes.data ?? []).map((h: any) => [h.source_id, h])));
+  }
+
+  async function addSource() {
+    if (!editTarget || !newSrcUrl.trim()) return;
+    const { error } = await ownerSupabase.from("stream_sources").insert({
+      stream_id:  editTarget.id,
+      stream_url: newSrcUrl.trim(),
+      label:      newSrcLabel.trim() || null,
+      priority:   100 + sources.length,
+    });
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    setNewSrcUrl("");
+    setNewSrcLabel("");
+    loadSourcesFor(editTarget.id);
+    toast.success("Fuente añadida — se probará en el próximo ciclo (≤2 min)");
+  }
+
+  async function removeSource(id: string) {
+    if (!editTarget) return;
+    const { error } = await ownerSupabase.from("stream_sources").delete().eq("id", id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    loadSourcesFor(editTarget.id);
+  }
+
   // ── Open sheet ──
   function openAdd() {
     setEditTarget(null);
     setForm({ ...EMPTY_FORM, sort_order: String(streams.length + 1) });
+    setSources([]);
+    setSourceHealth({});
+    setNewSrcUrl("");
+    setNewSrcLabel("");
     setLogoSearch("");
     setShowLogoSearch(false);
     setSheetOpen(true);
@@ -308,6 +382,9 @@ export default function Streams() {
       logo_url:    s.logo_url ?? "",
       sort_order:  String(s.sort_order),
     });
+    setNewSrcUrl("");
+    setNewSrcLabel("");
+    loadSourcesFor(s.id);
     setLogoSearch("");
     setShowLogoSearch(false);
     setSheetOpen(true);
@@ -876,6 +953,92 @@ export default function Streams() {
                 </div>
               )}
             </div>
+
+            {/* ── Sources / Round-robin pool (Sprint 8.2) ── */}
+            {editTarget && (
+              <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold">Fuentes (round-robin)</Label>
+                  <span className="text-[10px] text-muted-foreground">
+                    {1 + sources.length} fuente{sources.length === 0 ? "" : "s"}
+                  </span>
+                </div>
+
+                {/* Primary source row */}
+                <div className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1.5">
+                  {(() => {
+                    const h = sourceHealth[editTarget.id];
+                    const cls = !h ? "bg-zinc-300" : h.is_online ? "bg-green-500" : "bg-red-500";
+                    const title = !h
+                      ? "Aún sin chequeo (cron cada 2 min)"
+                      : h.is_online
+                        ? `Online · ${h.bitrate_kbps ?? "?"}K · ${h.resolution ?? "?"}`
+                        : `Offline${h.last_error ? ": " + h.last_error : ""}`;
+                    return <span className={cn("size-2 rounded-full shrink-0", cls)} title={title} />;
+                  })()}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-medium">Primaria</p>
+                    <p className="text-[10px] font-mono text-muted-foreground truncate">{form.stream_url || "(sin URL)"}</p>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground shrink-0">prio 0</span>
+                </div>
+
+                {/* Extra sources */}
+                {sources.map(src => {
+                  const h = sourceHealth[src.id];
+                  const cls = !h ? "bg-zinc-300" : h.is_online ? "bg-green-500" : "bg-red-500";
+                  const title = !h
+                    ? "Aún sin chequeo"
+                    : h.is_online
+                      ? `Online · ${h.bitrate_kbps ?? "?"}K · ${h.resolution ?? "?"}`
+                      : `Offline${h.last_error ? ": " + h.last_error : ""}`;
+                  return (
+                    <div key={src.id} className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1.5">
+                      <span className={cn("size-2 rounded-full shrink-0", cls)} title={title} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-medium">{src.label || "Fuente extra"}</p>
+                        <p className="text-[10px] font-mono text-muted-foreground truncate">{src.stream_url}</p>
+                      </div>
+                      <span className="text-[10px] text-muted-foreground shrink-0">prio {src.priority}</span>
+                      <button
+                        onClick={() => removeSource(src.id)}
+                        className="text-muted-foreground hover:text-red-600 shrink-0"
+                        title="Eliminar fuente"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+
+                {/* Add new source */}
+                <div className="space-y-1.5 rounded-md border border-dashed border-violet-300 bg-violet-50/40 p-2">
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <Input
+                      placeholder="Etiqueta (opcional)"
+                      value={newSrcLabel}
+                      onChange={e => setNewSrcLabel(e.target.value)}
+                      className="text-[11px] h-7 col-span-1"
+                    />
+                    <Input
+                      placeholder="https://otra-fuente.com/canal.m3u8"
+                      value={newSrcUrl}
+                      onChange={e => setNewSrcUrl(e.target.value)}
+                      className="text-[11px] font-mono h-7 col-span-2"
+                    />
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-[11px] w-full gap-1.5 border-violet-300 text-violet-700"
+                    disabled={!newSrcUrl.trim()}
+                    onClick={addSource}
+                  >
+                    <Plus className="size-3" /> Añadir fuente
+                  </Button>
+                </div>
+              </div>
+            )}
 
             <Button onClick={handleSave} disabled={saving || !form.name.trim() || !form.stream_url.trim()}
               className="w-full bg-violet-600 hover:bg-violet-700 gap-2">
