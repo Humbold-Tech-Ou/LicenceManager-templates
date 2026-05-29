@@ -150,6 +150,41 @@ export default function Servers() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [installingTranscode, setInstallingTranscode] = useState(false);
+
+  async function installTranscoding(serverId: string) {
+    const tenantToken = (import.meta.env.VITE_TENANT_TOKEN as string | undefined) ?? "";
+    if (!tenantToken) {
+      toast.error("No disponible en preview");
+      return;
+    }
+    if (!confirm("Esto instalará FFmpeg + nginx-rtmp + systemd service en el VPS vía SSH.\n\nRequiere acceso root y puede tardar 2-3 minutos. ¿Continuar?")) return;
+    setInstallingTranscode(true);
+    try {
+      const SUPABASE_URL = "https://rrresinucnxfdaaqcqcp.supabase.co";
+      const SUPABASE_ANON_KEY = SUPABASE_ANON_KEY_PUB;
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/install-transcoding`, {
+        method: "POST",
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          "X-Tenant-Token": tenantToken,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ server_id: serverId }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error ?? "Error instalando");
+      toast.success("Transcodificación lista", {
+        description: "FFmpeg + nginx + systemd configurados. Ya puedes activar transcoding en cada canal.",
+      });
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error");
+    } finally {
+      setInstallingTranscode(false);
+    }
+  }
 
   async function scanNow(serverId: string) {
     const tenantToken = (import.meta.env.VITE_TENANT_TOKEN as string | undefined) ?? "";
@@ -879,6 +914,38 @@ export default function Servers() {
                 )}
               </div>
             )}
+
+            {/* Transcoding setup (only for SSH servers) — Sprint 11.4 */}
+            {form.protocol === "ssh" && editing && (
+              <div className="space-y-3 rounded-lg border border-orange-200 bg-orange-50/40 p-3">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-orange-700">
+                  <Zap className="size-3.5" />
+                  Transcodificación HLS
+                  {(editing as any).transcoding_ready && (
+                    <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-green-100 text-green-700 text-[10px] px-2 py-0.5 font-medium">
+                      <Check className="size-2.5" /> Listo
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Instala FFmpeg + nginx + systemd template en este VPS para poder convertir
+                  cualquier stream (RTMP, etc.) a HLS universal. Setup one-time; luego cada canal
+                  se activa/desactiva individualmente.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={installingTranscode}
+                  onClick={() => installTranscoding(editing.id)}
+                  className="w-full gap-2 h-8 text-xs border-orange-300 text-orange-700 hover:bg-orange-100"
+                >
+                  {installingTranscode ? <Loader2 className="size-3.5 animate-spin" /> : <Zap className="size-3.5" />}
+                  {(editing as any).transcoding_ready ? "Re-instalar / actualizar" : "Instalar transcoding (vía SSH)"}
+                </Button>
+              </div>
+            )}
+
             {/* SSH credentials block */}
             {form.protocol === "ssh" && (
               <div className="space-y-3 rounded-lg border border-violet-200 bg-violet-50/40 p-3">

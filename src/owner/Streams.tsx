@@ -332,6 +332,84 @@ export default function Streams() {
   // Sprint 11.3 — failover events
   const [openFailovers, setOpenFailovers] = useState<Record<string, FailoverEvent>>({});
   const [recentFailovers, setRecentFailovers] = useState<FailoverEvent[]>([]);
+  // Sprint 11.4 — transcoding
+  const [transcodeJob, setTranscodeJob] = useState<any | null>(null);
+  const [transcodePreset, setTranscodePreset] = useState<"480p" | "720p" | "1080p" | "passthrough">("720p");
+  const [togglingTranscode, setTogglingTranscode] = useState(false);
+
+  async function loadTranscodeFor(streamId: string) {
+    const { data } = await ownerSupabase
+      .from("transcode_jobs")
+      .select("*")
+      .eq("stream_id", streamId)
+      .maybeSingle();
+    setTranscodeJob(data);
+    if (data?.preset) setTranscodePreset(data.preset);
+  }
+
+  async function startTranscode() {
+    if (!editTarget) return;
+    setTogglingTranscode(true);
+    try {
+      const tenantToken = (import.meta.env.VITE_TENANT_TOKEN as string | undefined) ?? "";
+      if (!tenantToken) {
+        toast.error("No disponible en preview");
+        return;
+      }
+      const LICENSE_URL = "https://rrresinucnxfdaaqcqcp.supabase.co";
+      const LICENSE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJycmVzaW51Y254ZmRhYXFjcWNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMzI5OTksImV4cCI6MjA5MTkwODk5OX0.PHQTe4-m5Nv16SXK64xLSybO-rh9_ZLiCiRO_KRam2I";
+      const res = await fetch(`${LICENSE_URL}/functions/v1/transcode-start`, {
+        method: "POST",
+        headers: {
+          apikey: LICENSE_ANON,
+          Authorization: `Bearer ${LICENSE_ANON}`,
+          "X-Tenant-Token": tenantToken,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ stream_id: editTarget.id, preset: transcodePreset }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error ?? "Error iniciando");
+      toast.success(`Transcodificación ${j.status}`, { description: j.output_url });
+      await loadTranscodeFor(editTarget.id);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error");
+    } finally {
+      setTogglingTranscode(false);
+    }
+  }
+
+  async function stopTranscode() {
+    if (!editTarget) return;
+    setTogglingTranscode(true);
+    try {
+      const tenantToken = (import.meta.env.VITE_TENANT_TOKEN as string | undefined) ?? "";
+      if (!tenantToken) {
+        toast.error("No disponible en preview");
+        return;
+      }
+      const LICENSE_URL = "https://rrresinucnxfdaaqcqcp.supabase.co";
+      const LICENSE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJycmVzaW51Y254ZmRhYXFjcWNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMzI5OTksImV4cCI6MjA5MTkwODk5OX0.PHQTe4-m5Nv16SXK64xLSybO-rh9_ZLiCiRO_KRam2I";
+      const res = await fetch(`${LICENSE_URL}/functions/v1/transcode-stop`, {
+        method: "POST",
+        headers: {
+          apikey: LICENSE_ANON,
+          Authorization: `Bearer ${LICENSE_ANON}`,
+          "X-Tenant-Token": tenantToken,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ stream_id: editTarget.id }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error ?? "Error parando");
+      toast.success("Transcodificación detenida");
+      await loadTranscodeFor(editTarget.id);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error");
+    } finally {
+      setTogglingTranscode(false);
+    }
+  }
   const [newSrcUrl, setNewSrcUrl] = useState("");
   const [newSrcLabel, setNewSrcLabel] = useState("");
 
@@ -395,6 +473,8 @@ export default function Streams() {
     setSources([]);
     setSourceHealth({});
     setRecentFailovers([]);
+    setTranscodeJob(null);
+    setTranscodePreset("720p");
     setNewSrcUrl("");
     setNewSrcLabel("");
     setLogoSearch("");
@@ -417,6 +497,7 @@ export default function Streams() {
     setNewSrcUrl("");
     setNewSrcLabel("");
     loadSourcesFor(s.id);
+    loadTranscodeFor(s.id);
     setLogoSearch("");
     setShowLogoSearch(false);
     setSheetOpen(true);
@@ -1140,6 +1221,102 @@ export default function Streams() {
                 </div>
               </div>
             )}
+
+            {/* ── Transcoding HLS (Sprint 11.4) ── */}
+            {editTarget && (() => {
+              const selectedServer = servers.find(s => s.id === editTarget.server_id) as any;
+              const transcodingReady = !!selectedServer?.transcoding_ready;
+              const running = transcodeJob?.status === "running";
+              const status = transcodeJob?.status ?? "stopped";
+              const statusColor =
+                status === "running" ? "bg-green-100 text-green-700"
+                : status === "starting" ? "bg-blue-100 text-blue-700"
+                : status === "crashed" ? "bg-amber-100 text-amber-700"
+                : status === "error" ? "bg-red-100 text-red-700"
+                : "bg-zinc-100 text-zinc-500";
+              return (
+                <div className="space-y-2 rounded-lg border border-orange-200 bg-orange-50/30 p-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-orange-700 flex items-center gap-1.5">
+                      <Zap className="size-3.5" />
+                      Transcodificación HLS
+                    </Label>
+                    <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-medium", statusColor)}>
+                      {status}
+                    </span>
+                  </div>
+
+                  {!editTarget.server_id ? (
+                    <p className="text-[11px] text-muted-foreground">
+                      El canal debe estar asociado a un servidor SSH para activar transcoding.
+                    </p>
+                  ) : !transcodingReady ? (
+                    <p className="text-[11px] text-amber-700 bg-amber-100 rounded px-2 py-1.5">
+                      <AlertTriangle className="inline size-3 mr-1" />
+                      El servidor no tiene transcoding instalado.
+                      Ve a Servidores → editar → "Instalar transcoding".
+                    </p>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Select
+                          value={transcodePreset}
+                          onValueChange={(v) => setTranscodePreset(v as any)}
+                          disabled={running}
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="480p">480p (1.2 Mbps)</SelectItem>
+                            <SelectItem value="720p">720p (2.8 Mbps)</SelectItem>
+                            <SelectItem value="1080p">1080p (5 Mbps)</SelectItem>
+                            <SelectItem value="passthrough">Passthrough (sin re-encode)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {running ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={togglingTranscode}
+                            onClick={stopTranscode}
+                            className="h-8 text-xs gap-1.5 border-red-300 text-red-700 hover:bg-red-50"
+                          >
+                            {togglingTranscode && <Loader2 className="size-3 animate-spin" />}
+                            Detener
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={togglingTranscode}
+                            onClick={startTranscode}
+                            className="h-8 text-xs gap-1.5 bg-orange-600 hover:bg-orange-700"
+                          >
+                            {togglingTranscode && <Loader2 className="size-3 animate-spin" />}
+                            Activar
+                          </Button>
+                        )}
+                      </div>
+                      {transcodeJob?.output_url && (
+                        <div className="rounded-md bg-zinc-50 border border-border px-2 py-1.5 text-[10px] font-mono break-all">
+                          {transcodeJob.output_url}
+                        </div>
+                      )}
+                      {transcodeJob?.last_error && (
+                        <p className="text-[10px] text-red-600 bg-red-50 rounded px-2 py-1">
+                          {transcodeJob.last_error}
+                        </p>
+                      )}
+                      <p className="text-[10px] text-muted-foreground">
+                        El sistema reinicia automáticamente hasta 3 veces si el proceso crashea.
+                      </p>
+                    </>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* ── Failover timeline (Sprint 11.3) ── */}
             {editTarget && recentFailovers.length > 0 && (
