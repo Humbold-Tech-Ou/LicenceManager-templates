@@ -112,6 +112,8 @@ interface FormState {
   http_port: string;
   http_base_path: string;
   http_use_https: boolean;
+  // Sprint 8.3 — directories to scan for new VOD files via SSH (cron every 30 min).
+  vod_watch_paths: string; // textarea, one path per line
 }
 
 const EMPTY_FORM: FormState = {
@@ -130,6 +132,7 @@ const EMPTY_FORM: FormState = {
   http_port: "",
   http_base_path: "",
   http_use_https: false,
+  vod_watch_paths: "",
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -143,6 +146,46 @@ export default function Servers() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [scanning, setScanning] = useState(false);
+
+  async function scanNow(serverId: string) {
+    const tenantToken = (import.meta.env.VITE_TENANT_TOKEN as string | undefined) ?? "";
+    if (!tenantToken) {
+      toast.error("Esta función no está disponible en modo preview");
+      return;
+    }
+    setScanning(true);
+    try {
+      const LICENSE_URL = "https://rrresinucnxfdaaqcqcp.supabase.co";
+      const LICENSE_ANON = SUPABASE_ANON_KEY_PUB;
+      const res = await fetch(`${LICENSE_URL}/functions/v1/scan-vod-servers`, {
+        method: "POST",
+        headers: {
+          apikey: LICENSE_ANON,
+          Authorization: `Bearer ${LICENSE_ANON}`,
+          "X-Tenant-Token": tenantToken,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ server_id: serverId }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error ?? "Error escaneando");
+      const result = j.summary?.[0]?.servers?.[0];
+      if (result?.ok) {
+        toast.success(
+          `Escaneo completo: ${result.scanned} archivos vistos, ${result.new} nuevos agregados`,
+        );
+      } else if (result?.error) {
+        toast.error(`Error: ${result.error}`);
+      } else {
+        toast.success("Escaneo iniciado");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error");
+    } finally {
+      setScanning(false);
+    }
+  }
 
   const [deleteTarget, setDeleteTarget] = useState<Server | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -301,6 +344,7 @@ export default function Servers() {
       http_port: (srv as any).http_port != null ? String((srv as any).http_port) : "",
       http_base_path: (srv as any).http_base_path ?? "",
       http_use_https: !!(srv as any).http_use_https,
+      vod_watch_paths: ((srv as any).vod_watch_paths ?? []).join("\n"),
     });
     setSheetOpen(true);
   }
@@ -388,6 +432,10 @@ export default function Servers() {
         http_port: form.http_port.trim() ? parseInt(form.http_port) : null,
         http_base_path: form.http_base_path.trim() || null,
         http_use_https: form.http_use_https,
+        vod_watch_paths: form.vod_watch_paths
+          .split("\n")
+          .map((p) => p.trim())
+          .filter(Boolean),
       };
       let serverId: string | undefined;
       if (editing) {
@@ -730,6 +778,39 @@ export default function Servers() {
                 </p>
               </div>
             </div>
+            {/* VOD watcher (only for SSH servers) — Sprint 8.3 */}
+            {form.protocol === "ssh" && (
+              <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50/40 p-3">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+                  <Film className="size-3.5" />
+                  Auto-detección de archivos VOD
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Lista los directorios que el sistema vigilará vía SSH cada 30 min.
+                  Los archivos nuevos (.mkv, .mp4, .avi, .ts, .m3u8, .mov, .wmv, .flv)
+                  se agregarán automáticamente como películas. Una ruta por línea.
+                </p>
+                <Textarea
+                  value={form.vod_watch_paths}
+                  onChange={(e) => setForm((f) => ({ ...f, vod_watch_paths: e.target.value }))}
+                  placeholder={`/home/Peliculas\n/home/Series`}
+                  className="font-mono text-xs min-h-[70px]"
+                />
+                {editing && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={scanning}
+                    onClick={() => scanNow(editing.id)}
+                    className="w-full gap-2 h-8 text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-100"
+                  >
+                    {scanning ? <Loader2 className="size-3.5 animate-spin" /> : <FolderSearch className="size-3.5" />}
+                    Escanear ahora
+                  </Button>
+                )}
+              </div>
+            )}
             {/* SSH credentials block */}
             {form.protocol === "ssh" && (
               <div className="space-y-3 rounded-lg border border-violet-200 bg-violet-50/40 p-3">
