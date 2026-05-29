@@ -858,16 +858,72 @@ export default function Streams() {
               <p className="text-[11px] text-muted-foreground">{typeConfig.urlPlaceholder}</p>
             </div>
 
-            {/* Stream URL */}
-            <div className="space-y-1.5">
-              <Label className="text-xs">{typeConfig.urlLabel} *</Label>
-              <Input
-                placeholder={typeConfig.urlPlaceholder}
-                value={form.stream_url}
-                onChange={e => setForm(f => ({ ...f, stream_url: e.target.value }))}
-                className="font-mono text-xs"
-              />
-            </div>
+            {/* Stream URL or RTMP stream key (Sprint 11.2) */}
+            {(() => {
+              const selectedServer = servers.find((s) => s.id === form.server_id);
+              const isRtmpServer = selectedServer?.protocol === "rtmp";
+              if (!isRtmpServer) {
+                return (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">{typeConfig.urlLabel} *</Label>
+                    <Input
+                      placeholder={typeConfig.urlPlaceholder}
+                      value={form.stream_url}
+                      onChange={(e) => setForm((f) => ({ ...f, stream_url: e.target.value }))}
+                      className="font-mono text-xs"
+                    />
+                  </div>
+                );
+              }
+              const srv = selectedServer as any;
+              const rtmpApp = srv.rtmp_app || "live";
+              const baseTemplate = `rtmp://${srv.ip}:${srv.port}/${rtmpApp}/`;
+              // Extract current key (everything after the base template, if matches)
+              const currentKey = form.stream_url.startsWith(baseTemplate)
+                ? form.stream_url.slice(baseTemplate.length)
+                : "";
+              const generateKey = () => {
+                const arr = new Uint8Array(16);
+                crypto.getRandomValues(arr);
+                const hex = Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("");
+                setForm((f) => ({ ...f, stream_url: baseTemplate + hex }));
+              };
+              return (
+                <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50/30 p-3">
+                  <Label className="text-xs flex items-center gap-1.5 text-amber-700">
+                    <Radio className="size-3" /> RTMP stream key *
+                  </Label>
+                  <p className="text-[10px] text-muted-foreground">
+                    Base: <code className="font-mono">{baseTemplate}</code>
+                  </p>
+                  <div className="flex gap-1.5">
+                    <Input
+                      placeholder="my-stream-key"
+                      value={currentKey}
+                      onChange={(e) => {
+                        const key = e.target.value.trim();
+                        setForm((f) => ({ ...f, stream_url: key ? baseTemplate + key : "" }));
+                      }}
+                      className="font-mono text-xs flex-1"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={generateKey}
+                      className="h-9 text-[11px] gap-1 border-amber-300 text-amber-700 hover:bg-amber-100"
+                    >
+                      <Zap className="size-3" /> Generar
+                    </Button>
+                  </div>
+                  {form.stream_url && (
+                    <p className="text-[10px] font-mono text-muted-foreground break-all">
+                      → {form.stream_url}
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Category + Server */}
             <div className="grid grid-cols-2 gap-3">

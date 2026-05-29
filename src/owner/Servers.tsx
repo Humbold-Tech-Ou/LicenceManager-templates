@@ -114,6 +114,8 @@ interface FormState {
   http_use_https: boolean;
   // Sprint 8.3 — directories to scan for new VOD files via SSH (cron every 30 min).
   vod_watch_paths: string; // textarea, one path per line
+  // Sprint 11.2 — RTMP application path (e.g. 'live', 'stream', 'hls').
+  rtmp_app: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -133,6 +135,7 @@ const EMPTY_FORM: FormState = {
   http_base_path: "",
   http_use_https: false,
   vod_watch_paths: "",
+  rtmp_app: "live",
 };
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -345,6 +348,7 @@ export default function Servers() {
       http_base_path: (srv as any).http_base_path ?? "",
       http_use_https: !!(srv as any).http_use_https,
       vod_watch_paths: ((srv as any).vod_watch_paths ?? []).join("\n"),
+      rtmp_app: (srv as any).rtmp_app ?? "live",
     });
     setSheetOpen(true);
   }
@@ -396,6 +400,35 @@ export default function Servers() {
         }
         return;
       }
+      if (form.protocol === "rtmp") {
+        // Sprint 11.2 — TCP-level ping (no auth, no stream verify)
+        const SUPABASE_URL = "https://rrresinucnxfdaaqcqcp.supabase.co";
+        const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJycmVzaW51Y254ZmRhYXFjcWNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzMzI5OTksImV4cCI6MjA5MTkwODk5OX0.PHQTe4-m5Nv16SXK64xLSybO-rh9_ZLiCiRO_KRam2I";
+        const tenantToken = (import.meta.env.VITE_TENANT_TOKEN as string | undefined) ?? "";
+        if (!tenantToken) {
+          toast.error("Test RTMP no disponible en preview");
+          return;
+        }
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/test-rtmp-server`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            "X-Tenant-Token": tenantToken,
+          },
+          body: JSON.stringify({ ip: form.ip, port: parseInt(form.port) || 1935 }),
+        });
+        const data = await res.json();
+        if (data?.ok) {
+          toast.success(`Servidor RTMP responde (${data.latency_ms} ms)`, {
+            description: "Conexión TCP exitosa. No verifica que un stream esté transmitiendo.",
+          });
+        } else {
+          toast.error("RTMP falló", { description: data?.error ?? "No respondió" });
+        }
+        return;
+      }
       const url = `${form.protocol}://${form.ip}:${form.port}`;
       const res = await fetch(url, { method: "HEAD", signal: AbortSignal.timeout(5000) });
       if (res.ok || res.status < 500) {
@@ -436,6 +469,7 @@ export default function Servers() {
           .split("\n")
           .map((p) => p.trim())
           .filter(Boolean),
+        rtmp_app: form.protocol === "rtmp" ? (form.rtmp_app.trim() || "live") : null,
       };
       let serverId: string | undefined;
       if (editing) {
@@ -728,6 +762,40 @@ export default function Servers() {
                 </Select>
               </div>
             </div>
+
+            {/* RTMP-specific block (Sprint 11.2) */}
+            {form.protocol === "rtmp" && (
+              <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50/40 p-3">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-amber-700">
+                  <Radio className="size-3.5" />
+                  Configuración RTMP
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  URL base que se construye para los canales:
+                  <code className="ml-1 px-1 rounded bg-amber-100 text-amber-800 font-mono">
+                    rtmp://{form.ip || "ip"}:{form.port || "1935"}/{form.rtmp_app || "live"}/&#123;stream_key&#125;
+                  </code>
+                </p>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Application path</Label>
+                  <Input
+                    value={form.rtmp_app}
+                    onChange={(e) => setForm((f) => ({ ...f, rtmp_app: e.target.value }))}
+                    placeholder="live"
+                    className="font-mono text-xs"
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    El "app" del RTMP server. Lo común es <code>live</code>; otros: <code>stream</code>, <code>hls</code>.
+                  </p>
+                </div>
+                <p className="text-[10px] text-amber-700 bg-amber-100 rounded px-2 py-1.5">
+                  <AlertTriangle className="inline size-3 mr-1" />
+                  RTMP funciona en apps con reproducción M3U directa (TiviMate, VLC).
+                  Para soporte universal en todas las apps IPTV se necesita conversión a HLS (Sprint 11.4 — diferido).
+                </p>
+              </div>
+            )}
+
             {/* HTTP file-serving block — required for VOD streaming when
                 the management port is SSH/RTMP. Tenants must run nginx/apache
                 on the http_port and serve their VOD directory. */}
