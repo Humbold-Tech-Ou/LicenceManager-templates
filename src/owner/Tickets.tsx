@@ -312,7 +312,7 @@ export default function Tickets() {
 
   // ── Render helpers ───────────────────────────────────────────────────────
 
-  function TicketList() {
+  function renderTicketList() {
     if (loading) {
       return (
         <div className="flex items-center justify-center py-20">
@@ -364,7 +364,7 @@ export default function Tickets() {
     );
   }
 
-  function TicketDetail({ ticket }: { ticket: Ticket }) {
+  function renderTicketDetail(ticket: Ticket) {
     return (
       <div className="flex flex-col h-full">
         {/* Header */}
@@ -545,14 +545,14 @@ export default function Tickets() {
 
           {/* Scrollable list */}
           <div className="flex-1 overflow-y-auto">
-            <TicketList />
+            {renderTicketList()}
           </div>
         </div>
 
         {/* Right panel: ticket detail (desktop) */}
         <div className="hidden md:flex flex-1 flex-col overflow-hidden">
           {selectedTicket ? (
-            <TicketDetail ticket={selectedTicket} />
+            renderTicketDetail(selectedTicket)
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
               <MessageSquare className="h-12 w-12 opacity-30 mb-3" />
@@ -568,7 +568,7 @@ export default function Tickets() {
           <SheetHeader className="sr-only">
             <SheetTitle>Detalle de ticket</SheetTitle>
           </SheetHeader>
-          {selectedTicket && <TicketDetail ticket={selectedTicket} />}
+          {selectedTicket && renderTicketDetail(selectedTicket)}
         </SheetContent>
       </Sheet>
 
